@@ -4,7 +4,7 @@
   "use strict";
   const T = root.THREE;
   const COL = { bg: 0x07090d, floor: 0x262a31, grid: 0x343a45, grid4: 0x4a5262, wall: 0x9fb3c8, skirt: 0x4a3a28,
-                chassis: 0x101216, top: 0xe9e6e1, wheel: 0x15171c, tire: 0x23262d, metal: 0xb9c0cb, red: 0xe5383b, cog: 0xf2a541,
+                chassis: 0x101216, top: 0xe9e6e1, hull: 0x9fb3c8, point: 0xe8edf4, wheel: 0x15171c, tire: 0x23262d, metal: 0xb9c0cb, red: 0xe5383b, cog: 0xf2a541,
                 target: 0x5d6470, skid: 0xc0c7d2 };
 
   class View {
@@ -73,30 +73,25 @@
       const g = new T.Group(); this.robotG = g;
       const mm = v => v / 1000;
       const z0 = mm(S.body.z0 !== undefined ? S.body.z0 : 5), z1 = mm(S.body.z1 !== undefined ? S.body.z1 : 40);
+      // the body as REDblocks draws it: a see-through hull of its points, the points themselves, a heading arrow
       const shape = new T.Shape(S.body.pts.map(p => new T.Vector2(mm(p[0]), mm(p[1]))));
-      const body = new T.Mesh(new T.ExtrudeGeometry(shape, { depth: z1 - z0, bevelEnabled: true, bevelThickness: 0.0015, bevelSize: 0.0015, bevelSegments: 1 }),
-                              new T.MeshStandardMaterial({ color: S.color || COL.chassis, roughness: 0.6, metalness: 0.2 }));
-      body.position.z = z0; body.castShadow = true; body.receiveShadow = true; g.add(body);
-      // top plate
+      const hullGeo = new T.ExtrudeGeometry(shape, { depth: z1 - z0, bevelEnabled: false });
+      const hull = new T.Mesh(hullGeo, new T.MeshBasicMaterial({ color: COL.hull, transparent: true, opacity: 0.13, depthWrite: false, side: T.DoubleSide }));
+      hull.position.z = z0; g.add(hull);
+      const edges = new T.LineSegments(new T.EdgesGeometry(hullGeo), new T.LineBasicMaterial({ color: COL.hull, transparent: true, opacity: 0.75 }));
+      edges.position.z = z0; g.add(edges);
+      const dotM = new T.MeshBasicMaterial({ color: COL.point });
+      for (const p of S.body.pts) for (const z of [z0, z1]) { const d = new T.Mesh(new T.SphereGeometry(0.0028, 8, 6), dotM); d.position.set(mm(p[0]), mm(p[1]), z); g.add(d); }
       const cx = S.body.pts.reduce((a, p) => a + p[0], 0) / S.body.pts.length, cy = S.body.pts.reduce((a, p) => a + p[1], 0) / S.body.pts.length;
-      const inset = new T.Shape(S.body.pts.map(p => new T.Vector2(mm(cx + 0.86 * (p[0] - cx)), mm(cy + 0.86 * (p[1] - cy)))));
-      const top = new T.Mesh(new T.ShapeGeometry(inset), new T.MeshStandardMaterial({ color: S.top || COL.top, roughness: 0.8 }));
-      top.position.z = z1 + 0.0016; g.add(top);
-      // the forward arrow on the top
-      const arrow = new T.Mesh(new T.ShapeGeometry(new T.Shape([new T.Vector2(mm(cx + 32), mm(cy)), new T.Vector2(mm(cx + 6), mm(cy + 12)), new T.Vector2(mm(cx + 6), mm(cy - 12))])),
-                               new T.MeshBasicMaterial({ color: COL.red }));
-      arrow.position.z = z1 + 0.0019; g.add(arrow);
+      const arrowGeo = new T.BufferGeometry().setFromPoints([new T.Vector3(mm(cx - 10), mm(cy), z1), new T.Vector3(mm(cx + 30), mm(cy), z1),
+        new T.Vector3(mm(cx + 30), mm(cy), z1), new T.Vector3(mm(cx + 20), mm(cy + 8), z1), new T.Vector3(mm(cx + 30), mm(cy), z1), new T.Vector3(mm(cx + 20), mm(cy - 8), z1)]);
+      g.add(new T.LineSegments(arrowGeo, new T.LineBasicMaterial({ color: COL.red })));
       // wheels (cylinder axis is y in three.js, as the axle)
       this.wheelMeshes = S.wheels.map(q => {
         const r = mm(q.d / 2), w = mm(q.w || 16), wg = new T.Group();
-        const tread = this._treadTex();
-        const tire = new T.Mesh(new T.CylinderGeometry(r, r, w, 32, 1, false), [new T.MeshStandardMaterial({ map: tread, roughness: 0.9 }),
-          new T.MeshStandardMaterial({ color: COL.wheel, roughness: 0.7 }), new T.MeshStandardMaterial({ color: COL.wheel, roughness: 0.7 })]);
+        const tire = new T.Mesh(new T.CylinderGeometry(r, r, w, 28), new T.MeshStandardMaterial({ color: q.driven ? COL.wheel : 0x3a3f4a, roughness: 0.8, emissive: 0x000000 }));
         tire.castShadow = true; wg.add(tire);
-        const hub = new T.Mesh(new T.CylinderGeometry(r * 0.45, r * 0.45, w * 1.04, 16), new T.MeshStandardMaterial({ color: q.driven ? 0x3a3f4a : 0x5d6878, metalness: 0.5, roughness: 0.4 }));
-        wg.add(hub);
-        // a spoke so turning shows
-        const spoke = new T.Mesh(new T.BoxGeometry(r * 1.6, w * 1.06, r * 0.18), new T.MeshStandardMaterial({ color: COL.red }));
+        const spoke = new T.Mesh(new T.BoxGeometry(r * 1.7, w * 1.04, r * 0.16), new T.MeshBasicMaterial({ color: COL.red }));
         wg.add(spoke);
         wg.position.set(mm(q.x), mm(q.y), r); g.add(wg);
         return { g: wg, tire, angle: 0 };
@@ -193,7 +188,7 @@
         const k = R._wg ? R._wg[i] : i, om = st.groups[k] || 0;
         w.angle += om * dtSim;
         w.g.rotation.y = w.angle;
-        const ld = st.wheels[i]; w.tire.material[0].emissive = new T.Color(ld && ld.slip > 0.3 ? 0x5a1010 : 0x000000);
+        const ld = st.wheels[i]; w.tire.material.emissive.setHex(ld && ld.slip > 0.3 ? 0x5a1010 : 0x000000);
       });
       if (this.weapon) {
         const W = this.weapon, rps = st.ww / (2 * Math.PI);
