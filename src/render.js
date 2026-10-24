@@ -84,7 +84,7 @@
         for (let i = 0; i < 6; i++) { const u = W.x - W.d / 2 + ((i + ph) / 6) * W.d; const a = tr(u, W.y - t), b = tr(u, W.y + t); ctx.beginPath(); ctx.moveTo(V.X(a[0]), V.Y(a[1])); ctx.lineTo(V.X(b[0]), V.Y(b[1])); ctx.stroke(); }
       }
     };
-    if (W.type === "horizontal" && W.under !== false) drawWeapon();
+    if (W.type === "horizontal" && !W.above) drawWeapon();
     // wheels
     S.wheels.forEach((q, i) => {
       const L = q.d / 2, ww2 = (q.w || 16) / 2;
@@ -112,7 +112,7 @@
       const h1 = tr(cxm + 24, cym + 6), h2 = tr(cxm + 24, cym - 6);
       ctx.beginPath(); ctx.moveTo(V.X(h1[0]), V.Y(h1[1])); ctx.lineTo(V.X(b[0]), V.Y(b[1])); ctx.lineTo(V.X(h2[0]), V.Y(h2[1])); ctx.stroke();
     }
-    if (W.type !== "horizontal" || W.under === false) drawWeapon();
+    if (W.type !== "horizontal" || W.above) drawWeapon();
     // skids and the COG
     (S.skids || []).forEach((q, i) => {
       const [x, y] = tr(q.x, q.y), ld = (st.N || [])[S.wheels.length + i];

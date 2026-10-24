@@ -45,6 +45,8 @@ input[type=checkbox]{accent-color:var(--red)}
 #keys b{color:var(--ink);display:inline-block;min-width:64px}
 #msg{left:50%;top:40%;transform:translate(-50%,-50%);font:600 16px var(--sans);padding:14px 20px;text-align:center}
 #msg small{display:block;font:12px var(--sans);color:var(--ink2);margin-top:6px}
+#labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.hitl{position:absolute;transform:translate(-50%,-100%);font:700 16px var(--mono);color:#ffe7c2;text-shadow:0 0 6px #000}
 /* setup drawer */
 #setup{position:fixed;top:46px;right:0;bottom:0;width:min(560px,100vw);background:var(--panel);border-left:1px solid var(--edge);z-index:6;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .18s}
 #setup.open{transform:none}
@@ -85,7 +87,7 @@ kbd{font:11px var(--mono);background:var(--panel3);border:1px solid var(--edge);
   <button id="bReset" title="Back to the start (R)">Reset</button>
   <button id="bPause" title="Pause (P)">Pause</button>
   <button id="bTarget" title="A box to push and hit (T)">Target</button>
-  <button id="bFollow" title="Camera follows the robot (C)">Follow</button>
+  <button id="bFollow" title="Camera: chase, top, whole arena, orbit (C). Drag to orbit, wheel to zoom">Camera</button>
   <select id="speedSel" title="Time scale ([ and ])"><option value="1">1x</option><option value="0.5">0.5x</option><option value="0.25">0.25x</option><option value="0.1">0.1x</option></select>
   <div class="sp"></div>
   <span class="pad" id="padInfo">no controller</span>
@@ -99,6 +101,7 @@ kbd{font:11px var(--mono);background:var(--panel3);border:1px solid var(--edge);
   <div id="keys" class="hud"></div>
   <div id="chart" class="hud"><canvas id="chartCv"></canvas></div>
   <div id="msg" class="hud" hidden></div>
+  <div id="labels"></div>
 </div>
 <div id="setup">
   <header><h2>Robot setup</h2>
@@ -110,10 +113,13 @@ kbd{font:11px var(--mono);background:var(--panel3);border:1px solid var(--edge);
   <div id="sbody"></div>
 </div>
 <div id="help"><div class="box" id="helpBox"></div></div>
+<script src="lib/three.min.js"></script>
+<script src="src/planar.js"></script>
 <script src="src/physics.js"></script>
 <script src="src/robots.js"></script>
 <script src="src/input.js"></script>
 <script src="src/render.js"></script>
+<script src="src/render3d.js"></script>
 <script src="src/app.js"></script>
 </body>
 </html>

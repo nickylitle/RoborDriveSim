@@ -1,96 +1,78 @@
-/* RoborDriveSim physics.
+/* RoborDriveSim physics, 3D.
  *
- * Built from the Flapjack drive model in REDblocks (examples/case_studies/combat_robot/flapjack_drive_legacy.py),
- * which matched the REDblocks 3D drive model within about 4 % on launch, point turns, braking and a fight's energy.
- * That model is a planar rigid body (x, y, yaw) on two driven wheels and a sliding skid. Here it is general:
+ * The chassis is a rigid body in 3D (position, velocity, orientation quaternion, angular velocity in its own frame),
+ * as in REDblocks' 3D engine. Everything touches the floor, the walls and the target through penalty contacts
+ * (a spring and a damper on each penetration, friction on the slip), so nothing is assumed about which way up it is:
+ * it pitches, rolls, wheelies, tips, flips and lands.
  *
- *  - any number of wheels at any positions, each with its own radius; a wheel is driven or free; driven wheels on
- *    one side can be linked (chain or belt) so they turn together on that side's motors
- *  - any number of skids (sliding contact points: a wedge edge, a bolt head, forks)
- *  - normal loads shared by a rigid floor plane on equal contact springs (exact for three contacts, the usual
- *    choice for more), with fore-aft and side load transfer from COG height (lagged, as in the original) and the
- *    weapon's pitch / roll moments; a contact that would pull is lifted off and the rest re-shared
- *  - each motor: back-EMF, winding resistance, ESC current limit, drag brake or coast, gearbox efficiency in the
- *    right direction; all motors (drive and weapon) on one pack with internal resistance, so a spinning-up weapon
- *    sags the drive
- *  - the combined-slip tire curve (brush rise, peak, slide), Stribeck skid friction, rolling resistance
- *  - the weapon: a spin state on its own motor(s); its spin-up and drag react on the chassis about the spin axis
- *    (horizontal: yaw; vertical or drum: pitch), and a vertical weapon's gyroscope rolls the chassis when it turns
- *  - arena walls and an optional target box (penalty contacts with friction), and weapon hits on the target as
- *    impulses through the tooth (blade inertia, target and robot masses, restitution, one bite per tooth)
+ *  - Wheels: a disc on an axle along the robot's y axis. Its contact point is the lowest point of the disc; the tire
+ *    is a spring-damper (tread compliance) and grips through the combined-slip curve from the Flapjack drive model
+ *    (brush rise, peak, slide) on the load it actually carries. Each wheel (or each side's linked set) spins on its
+ *    own state with its motors' reflected rotor inertia; the gearbox's reaction goes into the chassis.
+ *  - Skids and the body: skid points slide with Stribeck friction; the body's outline (a prism from its bottom to its
+ *    top) is checked against the floor, walls and ceiling so it lands on its armour when it tips or flips.
+ *  - Motors: back-EMF, resistance, the ESC's current limit, drag brake or coast, gearbox efficiency in the right
+ *    direction, all drive and weapon motors on one pack with internal resistance (fixed point on the bus voltage).
+ *  - Weapon: its spin (relative to the chassis) on its own motors. Its angular momentum H is carried in the chassis
+ *    equations: I w' = torque - w x (I w + H) - dH/dt. So spinning up twists the chassis the other way about the
+ *    weapon's axis, and turning a robot with a spinning vertical disc or drum makes it roll and pitch (gyro). Hits on
+ *    the target are impulses through the tooth: blade inertia, target and robot, restitution, once per tooth.
+ *  - Target: a 3D box with its own contacts: it slides, tumbles and flies when a vertical weapon catches it.
  *
- * Fixed-step RK4 (0.1 ms by default). Runs in a browser (window.RDS.physics) and under node (module.exports).
- * Units: SI inside (m, kg, s, N, A, V); the setup screen works in mm and g and converts (see robots.js).
+ * Semi-implicit Euler at 50 us (contacts are stiff; this is well inside their stability limit).
+ * Units SI. Browser: window.RDS.physics; node: module.exports.
  */
 (function (root) {
   "use strict";
   const G0 = 9.81;
+  // ---------------------------------------------------------------- small 3-vector and quaternion helpers
+  const v3 = (x = 0, y = 0, z = 0) => [x, y, z];
+  const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const mul = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm = a => Math.sqrt(dot(a, a));
+  function qrot(q, v) {                                 // rotate v by unit quaternion q = [w, x, y, z]
+    const [w, x, y, z] = q, tx = 2 * (y * v[2] - z * v[1]), ty = 2 * (z * v[0] - x * v[2]), tz = 2 * (x * v[1] - y * v[0]);
+    return [v[0] + w * tx + y * tz - z * ty, v[1] + w * ty + z * tx - x * tz, v[2] + w * tz + x * ty - y * tx];
+  }
+  const qconj = q => [q[0], -q[1], -q[2], -q[3]];
+  function qmul(a, b) {
+    return [a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3], a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
+            a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1], a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0]];
+  }
+  function qint(q, w, h) {                              // q advanced by body rate w over h (exact rotation)
+    const a = norm(w) * h;
+    if (a < 1e-12) return q;
+    const s = Math.sin(a / 2) / norm(w), d = [Math.cos(a / 2), w[0] * s, w[1] * s, w[2] * s];
+    const r = qmul(q, d), n = Math.hypot(...r);
+    return r.map(c => c / n);
+  }
+  const qyaw = psi => [Math.cos(psi / 2), 0, 0, Math.sin(psi / 2)];
 
-  // ---------------------------------------------------------------- tire curve and motors (as in the original)
+  // ---------------------------------------------------------------- tire curve, motors (as in the Flapjack model)
   function tireMu(sig, mus, muk, sigp) {
     const sig0 = 0.5 * sigp;
     return muk * Math.tanh(sig / sig0) + (mus - muk) * (sig / sigp) * Math.exp(1.0 - sig / sigp);
   }
-  // ESC + motor: current from the throttle u (-1..1), the motor shaft speed wm and the bus voltage
   function motorCurrent(u, wm, vbus, mo) {
-    if (!mo.brake && Math.abs(u) < 0.02) return 0.0;      // coast: the ESC lets go
-    const v = mo.vmax > 0 ? Math.min(vbus, mo.vmax) : vbus;   // a drive capped below the pack (ESC endpoint)
+    if (!mo.brake && Math.abs(u) < 0.02) return 0.0;
+    const v = mo.vmax > 0 ? Math.min(vbus, mo.vmax) : vbus;
     let I = (u * v - mo.Ke * wm) / mo.R;
     if (I > mo.Imax) I = mo.Imax; else if (I < -mo.Imax) I = -mo.Imax;
-    if (mo.oneWay && I < 0 && u >= 0 && wm >= 0) I = Math.max(I, 0);   // a weapon ESC that only drives
+    if (mo.oneWay && I < 0) I = 0;                      // a weapon ESC that only drives (no braking current)
     return I;
   }
 
-  // ---------------------------------------------------------------- normal loads on a rigid floor plane
-  // contacts at (dx, dy) from the COG; N = a + b dx + c dy over the ones touching (equal contact springs), such that
-  // sum N = W, sum N dx = My, sum N dy = Mx. Lifted contacts (N < 0) drop out and the rest re-share.
-  function shareLoads(dx, dy, W, My, Mx, N, on) {
-    const n = dx.length;
-    for (let i = 0; i < n; i++) on[i] = 1;
-    let tip = 0;
-    for (let pass = 0; pass <= n; pass++) {
-      let s0 = 0, sx = 0, sy = 0, sxx = 0, sxy = 0, syy = 0;
-      for (let i = 0; i < n; i++) if (on[i]) { s0++; sx += dx[i]; sy += dy[i]; sxx += dx[i] * dx[i]; sxy += dx[i] * dy[i]; syy += dy[i] * dy[i]; }
-      if (s0 === 0) { for (let i = 0; i < n; i++) N[i] = 0; return 2; }
-      const eps = 1e-9 * (sxx + syy + 1e-6) + 1e-12;
-      // solve [[s0 sx sy][sx sxx sxy][sy sxy syy]] [a b c] = [W My Mx] (regularised: two contacts in a line still work)
-      const A = [[s0 + eps, sx, sy], [sx, sxx + eps, sxy], [sy, sxy, syy + eps]], bv = [W, My, Mx];
-      const sol = solve3(A, bv);
-      let neg = -1, worst = 0;
-      for (let i = 0; i < n; i++) {
-        N[i] = on[i] ? sol[0] + sol[1] * dx[i] + sol[2] * dy[i] : 0;
-        if (on[i] && N[i] < worst) { worst = N[i]; neg = i; }
-      }
-      if (neg < 0) {
-        // what the touching contacts could not hold (a moment beyond the support): the robot is tipping
-        let fx = 0, fy = 0; for (let i = 0; i < n; i++) { fx += N[i] * dx[i]; fy += N[i] * dy[i]; }
-        if (Math.abs(fx - My) > 1e-3 * (Math.abs(My) + W * 0.01) || Math.abs(fy - Mx) > 1e-3 * (Math.abs(Mx) + W * 0.01)) tip = 1;
-        return tip;
-      }
-      on[neg] = 0; tip = 1;
-    }
-    return 1;
-  }
-  function solve3(A, b) {
-    const M = A.map((r, i) => [...r, b[i]]);
-    for (let c = 0; c < 3; c++) {
-      let p = c; for (let r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
-      [M[c], M[p]] = [M[p], M[c]];
-      const d = M[c][c] || 1e-30;
-      for (let r = 0; r < 3; r++) if (r !== c) { const f = M[r][c] / d; for (let k = c; k < 4; k++) M[r][k] -= f * M[c][k]; }
-    }
-    return [M[0][3] / (M[0][0] || 1e-30), M[1][3] / (M[1][1] || 1e-30), M[2][3] / (M[2][2] || 1e-30)];
-  }
-
-  // ---------------------------------------------------------------- a robot, compiled to arrays the step uses
-  // R (from robots.js build()): m, Izz, cog {x, y, h}, wheels [{x, y, r, driven, side, J}], linked, motorsPerSide,
-  // skids [{x, y, mus, muk}], tire {muk, mus, sigp, vmin, crr}, drive motor {kv, R, G, eta, etab, Jrot, Imax, brake},
-  // battery {V, R, mAh}, weapon {type, x, y, I, dir, radius, teeth, motor {...}, n, G, eta, drag, bite_e},
-  // outline [[x, y], ...] (from the robot's origin), weapon footprint, tau
+  // ---------------------------------------------------------------- the robot, compiled
+  // R from robots.js build(): m, I [Ixx, Iyy, Izz] about the COG (body axes), cog {x, y, h}, wheels [{x, y, z, r, w,
+  // driven, side, J}], linked, motorsPerSide, skids [{x, y, z, mus, muk}], tire, drive, battery, weapon {type, x, y,
+  // z, I, dir, radius, thick, teeth, motor, n, G, eta, drag, drag0, bite_e, rpm_cap}, outline [[x, y]], z0, z1
   function compile(R) {
     const c = { R };
-    const cx = R.cog.x, cy = R.cog.y;
-    // drive groups: linked wheels on each side turn together; otherwise each wheel turns alone
+    const C = [R.cog.x, R.cog.y, R.cog.h];
+    const rel = (x, y, z) => [x - C[0], y - C[1], z - C[2]];
     const groups = [];
     R.wheels.forEach((w, i) => {
       let g;
@@ -98,413 +80,404 @@
       if (!g) { g = { linked: !!(R.linked && w.driven), side: w.side, wheels: [], motors: 0, J: 0 }; groups.push(g); }
       g.wheels.push(i);
     });
-    const mo = R.drive;
-    const Ke = 60 / (2 * Math.PI * mo.kv);                // V s/rad = N m/A at the motor
+    const mo = R.drive, Ke = 60 / (2 * Math.PI * mo.kv);
     for (const g of groups) {
       const driven = g.wheels.some(i => R.wheels[i].driven);
       g.motors = !driven ? 0 : (g.linked ? R.motorsPerSide : g.wheels.filter(i => R.wheels[i].driven).length);
       g.J = g.wheels.reduce((s, i) => s + R.wheels[i].J, 0) + g.motors * mo.Jrot * mo.G * mo.G;
     }
-    c.groups = groups;
+    // angular momentum a spinning group carries (wheels + rotors: a rotor turns G times as fast, so it holds G Jrot w,
+    // not the G^2 Jrot w its reflected inertia would suggest). The chassis feels the change of this, no more: taking
+    // the reflected inertia's torque instead gave a fake wheelie at launch (the bug REDblocks fixed in 2026-10)
+    for (const g of groups) g.Jmom = g.wheels.reduce((s, i) => s + R.wheels[i].J, 0) + g.motors * mo.Jrot * mo.G;
+    c.groups = groups; c.ng = groups.length;
     c.wheelGroup = new Int32Array(R.wheels.length);
     groups.forEach((g, k) => g.wheels.forEach(i => { c.wheelGroup[i] = k; }));
-    c.dmotor = { Ke, R: mo.R, Imax: mo.Imax, brake: mo.brake !== false && mo.brake !== 0, G: mo.G, eta: mo.eta, etab: mo.etab || mo.eta, vmax: mo.vmax || 0 };
-    // contacts: wheels then skids, from the COG
-    const pts = [...R.wheels.map(w => [w.x, w.y]), ...R.skids.map(s => [s.x, s.y])];
-    c.dx = Float64Array.from(pts.map(p => p[0] - cx)); c.dy = Float64Array.from(pts.map(p => p[1] - cy));
-    c.N = new Float64Array(pts.length); c.on = new Int32Array(pts.length);
-    c.nw = R.wheels.length; c.ns = R.skids.length;
-    const W = R.weapon || { type: "none" };
-    c.weapon = W.type && W.type !== "none" ? W : null;
-    if (c.weapon) {
-      const wm = W.motor;
-      c.wmotor = { Ke: 60 / (2 * Math.PI * wm.kv), R: wm.R, Imax: wm.Imax, brake: false, oneWay: true };
-      c.wdx = W.x - cx; c.wdy = W.y - cy;
+    c.dmotor = { Ke, R: mo.R, Imax: mo.Imax, brake: !!mo.brake, G: mo.G, eta: mo.eta, etab: mo.etab || mo.eta, vmax: mo.vmax || 0 };
+    c.wheels = R.wheels.map(w => ({ c: rel(w.x, w.y, w.z), r: w.r }));
+    c.skids = R.skids.map(s => ({ p: rel(s.x, s.y, s.z || 0), muk: s.muk, mus: s.mus }));
+    // the body's corners (bottom and top of the outline) and edge midpoints at the bottom
+    const pts = [];
+    const ol = R.outline;
+    for (let i = 0; i < ol.length; i++) {
+      const a = ol[i], b = ol[(i + 1) % ol.length];
+      pts.push(rel(a[0], a[1], R.z0), rel(a[0], a[1], R.z1), rel((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, R.z0), rel((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, R.z1));
     }
-    // state layout: body 0..9, groups, weapon, energies
-    c.ng = groups.length;
-    c.iG = 10; c.iW = 10 + c.ng; c.iE = c.iW + 1;
-    c.E = { term: 0, cu: 1, gear: 2, tire: 3, skid: 4, rr: 5, wall: 6, wdrag: 7, bat: 8, target: 9 };
-    c.NS = c.iE + 10;
-    c.I = new Float64Array(c.ng); c.Tg = new Float64Array(c.ng);
+    c.hull = pts;
+    c.poly = ol.map(p => [p[0] - C[0], p[1] - C[1]]); c.zlo = R.z0 - C[2]; c.zhi = R.z1 - C[2];
+    const W = R.weapon && R.weapon.type !== "none" ? R.weapon : null;
+    c.weapon = W;
+    if (W) {
+      c.wmotor = { Ke: 60 / (2 * Math.PI * W.motor.kv), R: W.motor.R, Imax: W.motor.Imax, brake: false, oneWay: true };
+      c.wc = rel(W.x, W.y, W.z);
+      c.waxis = W.type === "horizontal" ? [0, 0, W.dir] : [0, -W.dir, 0];       // spin sense in the body frame
+      // its rim, for walls and the floor
+      c.wrim = [];
+      for (let k = 0; k < 16; k++) {
+        const a = 2 * Math.PI * k / 16, cs = Math.cos(a) * W.radius, sn = Math.sin(a) * W.radius;
+        c.wrim.push(W.type === "horizontal" ? add(c.wc, [cs, sn, 0]) : add(c.wc, [cs, 0, sn]));
+        if (W.type !== "horizontal") { c.wrim.push(add(c.wc, [cs, W.thick / 2, sn])); c.wrim.push(add(c.wc, [cs, -W.thick / 2, sn])); }
+      }
+    }
+    c.I = R.I.slice(); c.Iinv = R.I.map(v => 1 / v);
+    c.reach = Math.max(...c.hull.map(norm), ...(c.wrim || []).map(norm), ...c.wheels.map(w => norm(w.c) + w.r)) + 0.01;
     return c;
-  }
-
-  // ---------------------------------------------------------------- arena and target contacts
-  function wallForces(px, py, vx, vy, H, A, acc) {
-    // a point at (px, py) moving at (vx, vy) against the four walls of a square of half side H; acc [Fx, Fy, P]
-    for (let k = 0; k < 4; k++) {
-      const ax = k < 2 ? 0 : 1, sg = (k % 2) ? -1 : 1;
-      const q = ax === 0 ? px : py, pen = sg * q - H;
-      if (pen <= 0) continue;
-      const vn = sg * (ax === 0 ? vx : vy), vt = ax === 0 ? vy : vx;
-      let Nn = A.k * pen + A.c * vn; if (Nn < 0) Nn = 0;
-      const Ft = -A.mu * Nn * Math.tanh(vt / 0.02);
-      const fx = ax === 0 ? -sg * Nn : Ft, fy = ax === 0 ? Ft : -sg * Nn;
-      acc[0] += fx; acc[1] += fy; acc[2] += -(fx * vx + fy * vy);
-    }
-  }
-  // the deepest point of P inside a convex polygon Q (world): returns [depth, nx, ny] (normal out of Q) or null
-  function insideConvex(px, py, Q) {
-    let best = Infinity, bn = null;
-    for (let i = 0; i < Q.length; i++) {
-      const a = Q[i], b = Q[(i + 1) % Q.length];
-      let ex = b[0] - a[0], ey = b[1] - a[1]; const L = Math.hypot(ex, ey) || 1e-12; ex /= L; ey /= L;
-      const nx = ey, ny = -ex;                         // outward for a counter-clockwise polygon
-      const d = (px - a[0]) * nx + (py - a[1]) * ny;
-      if (d > 0) return null;
-      if (-d < best) { best = -d; bn = [nx, ny]; }
-    }
-    return [best, bn[0], bn[1]];
-  }
-  function ccw(poly) {                                  // make a polygon counter-clockwise
-    let s = 0; for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; s += a[0] * b[1] - b[0] * a[1]; }
-    return s < 0 ? poly.slice().reverse() : poly;
   }
 
   // ---------------------------------------------------------------- the simulation
   class Sim {
     constructor(R, opts) {
-      this.opts = Object.assign({ h: 2e-4, arena: 2.4384, k_wall: 5e4, e_wall: 0.3, mu_wall: 0.3, target: null }, opts || {});
+      this.opts = Object.assign({ h: 1e-4, arena: 2.4384, ceiling: 1.2, k_tire: 2e4, c_tire: 80, k_hard: 2e5, c_hard: 250,
+                                  e_wall: 0.3, mu_wall: 0.3, mu_body: 0.25, target: null }, opts || {});
       this.setRobot(R);
     }
-    setRobot(R) {
-      this.c = compile(R); this.R = R;
-      this.outline = ccw(R.outline);
-      // how far any part of the robot reaches from its COG (walls and the target are only checked within it)
-      const all = this.outline.concat(R.weaponFootprint || []);
-      this.reachR = Math.max(...all.map(([x, y]) => Math.hypot(x - R.cog.x, y - R.cog.y))) + 0.005;
-      this.wo = { pts: this.outline.map(() => [0, 0]), weapon: (R.weaponFootprint || []).map(() => [0, 0]) };
-      this.tpoly = [[0, 0], [0, 0], [0, 0], [0, 0]];
-      this.reset();
-    }
+    setRobot(R) { this.c = compile(R); this.R = R; this.reset(); }
     reset(pose) {
       const c = this.c, R = this.R, o = this.opts;
-      this.s = new Float64Array(c.NS);
       const ps = pose || { x: 0, y: -0.5 * o.arena + 0.35, psi: Math.PI / 2 };
-      // pose places the robot's origin; the state carries the COG
-      const cs = Math.cos(ps.psi), sn = Math.sin(ps.psi);
-      this.s[0] = ps.x + cs * R.cog.x - sn * R.cog.y; this.s[1] = ps.y + sn * R.cog.x + cs * R.cog.y; this.s[2] = ps.psi;
-      this.t = 0; this.uL = 0; this.uR = 0; this.uW = 0; this.charge = 0; this.dg = {}; this.hits = [];
-      this.wangle = 0; this.lastBite = -1e9;
+      this.q = qyaw(ps.psi);
+      // pose places the robot's reference point on the floor; the state carries the COG (settled on its contacts)
+      const off = qrot(this.q, [R.cog.x, R.cog.y, 0]);
+      this.p = [ps.x + off[0], ps.y + off[1], R.cog.h + this.settle()];
+      this.v = v3(); this.w = v3();                      // world velocity of the COG; body-frame angular velocity
+      this.wg = new Float64Array(c.ng);                  // wheel group spin (relative to the chassis)
+      this.ww = 0; this.wangle = 0; this.lastBite = -1e9;
+      this.t = 0; this.charge = 0; this.dg = {}; this.hits = []; this.u = { L: 0, R: 0, W: 0 };
       const T = o.target;
-      this.tg = T ? { x: T.x, y: T.y, psi: T.psi || 0, vx: 0, vy: 0, r: 0, m: T.m, I: T.m * (T.a * T.a + T.b * T.b) / 12, a: T.a, b: T.b, mu: T.mu } : null;
-      this.k = [0, 1, 2, 3].map(() => new Float64Array(c.NS)); this.tmp = new Float64Array(c.NS);
-      if (this.tg) { this.tk = [0, 1, 2, 3].map(() => new Float64Array(6)); this.tt = new Float64Array(6); }
-      const m = R.m;
-      const lw = -Math.log(Math.max(o.e_wall, 1e-3));
-      if (T) this.TA = { k: o.k_wall, c: 2 * Math.sqrt(o.k_wall * T.m) * lw / Math.sqrt(Math.PI ** 2 + lw * lw), mu: o.mu_wall };
-      this.tacc = [0, 0, 0];
-      this.A = { k: o.k_wall, c: 2 * Math.sqrt(o.k_wall * m) * lw / Math.sqrt(Math.PI * Math.PI + lw * lw), mu: o.mu_wall };
-    }
-
-    // the robot's outline (and its weapon's footprint) in the world, from a state vector
-    worldOutline(s, fresh) {
-      const R = this.R, cs = Math.cos(s[2]), sn = Math.sin(s[2]);
-      const ox = s[0] - (cs * R.cog.x - sn * R.cog.y), oy = s[1] - (sn * R.cog.x + cs * R.cog.y);
-      const W = fresh ? { pts: this.outline.map(() => [0, 0]), weapon: (R.weaponFootprint || []).map(() => [0, 0]) } : this.wo;
-      const fill = (src, dst) => { for (let i = 0; i < src.length; i++) { const x = src[i][0], y = src[i][1]; dst[i][0] = ox + cs * x - sn * y; dst[i][1] = oy + sn * x + cs * y; } };
-      fill(this.outline, W.pts); fill(R.weaponFootprint || [], W.weapon);
-      W.ox = ox; W.oy = oy;
-      return W;
-    }
-    targetPoly(T, fresh) {
-      const cs = Math.cos(T.psi), sn = Math.sin(T.psi), a = T.a / 2, b = T.b / 2, P = fresh ? [[0, 0], [0, 0], [0, 0], [0, 0]] : this.tpoly;
-      const L = [[-a, -b], [a, -b], [a, b], [-a, b]];
-      for (let i = 0; i < 4; i++) { P[i][0] = T.x + cs * L[i][0] - sn * L[i][1]; P[i][1] = T.y + sn * L[i][0] + cs * L[i][1]; }
-      return P;
-    }
-
-    // time derivative of the robot state (and the target's, when there is one)
-    deriv(s, T, u, ds, dT, dg) {
-      const c = this.c, R = this.R, o = this.opts, m = R.m, h = R.cog.h;
-      const cs = Math.cos(s[2]), sn = Math.sin(s[2]);
-      const vbx = cs * s[3] + sn * s[4], vby = -sn * s[3] + cs * s[4], r = s[5];
-      // weapon moments on the chassis (pitch My, roll Mx, yaw Mz), from its spin-up / drag and its gyroscope
-      let wI = 0, Tw = 0, Pw = 0, IW = 0, Pwdrag = 0, Pwcu = 0;
-      const W = c.weapon, ww = W ? s[c.iW] : 0;
-      // the weapon ESC's speed cap (a governor): throttle eases off over the last 2 % below the cap
-      let uw = u.W || 0;
-      if (W && W.rpm_cap > 0) { const cap = W.rpm_cap * Math.PI / 30; uw *= Math.max(0, Math.min(1, (cap - ww) / (0.02 * cap))); }
-      // ---- the bus: every motor on one pack (fixed point on the voltage, as in the original)
-      const gs = c.groups, dm = c.dmotor;
-      const I = c.I;
-      let vbus = R.battery.V, Ib = 0;
-      const uOf = g => g.side === "L" ? u.L : (g.side === "R" ? u.R : 0);
-      for (let it = 0; it < 12; it++) {
-        let P = 0;
-        for (let k = 0; k < c.ng; k++) {
-          const g = gs[k]; if (!g.motors) { I[k] = 0; continue; }
-          const wm = s[c.iG + k] * dm.G;
-          I[k] = motorCurrent(uOf(g), wm, vbus, dm);
-          P += g.motors * (I[k] * dm.R + dm.Ke * wm) * I[k];
-        }
-        if (W) {
-          const wm = ww * W.G;
-          IW = motorCurrent(uw, wm, vbus, c.wmotor);
-          P += W.n * (IW * c.wmotor.R + c.wmotor.Ke * wm) * IW;
-        }
-        Ib = P / vbus;
-        vbus = 0.4 * vbus + 0.6 * (R.battery.V - R.battery.R * Ib);
-      }
-      let Pterm = 0, Pcu = 0;
-      for (let k = 0; k < c.ng; k++) {
-        const g = gs[k]; if (!g.motors) { I[k] = 0; continue; }
-        const wm = s[c.iG + k] * dm.G;
-        I[k] = motorCurrent(uOf(g), wm, vbus, dm);
-        Pterm += g.motors * (I[k] * dm.R + dm.Ke * wm) * I[k]; Pcu += g.motors * I[k] * I[k] * dm.R;
-      }
-      if (W) {
-        const wm = ww * W.G;
-        IW = motorCurrent(uw, wm, vbus, c.wmotor);
-        const Tm = W.n * c.wmotor.Ke * IW * W.G;           // at the weapon, before losses
-        const Tout = Tm * ww >= 0 ? W.eta * Tm : Tm / W.eta;
-        const Td = W.drag * ww * Math.abs(ww) + W.drag0 * Math.tanh(ww / 1.0);   // air + bearings
-        Tw = Tout - Td; wI = Tw / W.I;
-        Pterm += W.n * (IW * c.wmotor.R + c.wmotor.Ke * wm) * IW; Pcu += W.n * IW * IW * c.wmotor.R;
-        Pw = Tm * ww - Tout * ww; Pwdrag = Td * ww;
-      }
-      Ib = Pterm / vbus;
-      // reaction on the chassis = - (net torque on the weapon) about its axis; gyroscope for a horizontal axis
-      let My = 0, Mx = 0, Mz = 0;
-      if (W) {
-        const Hs = W.I * ww * W.dir;                       // spin momentum, signed along the weapon's axis
-        if (W.type === "horizontal") Mz -= W.dir * Tw;
-        else {                                             // vertical / drum: axis across the robot (y)
-          // dir +1: the front of the weapon moves up (spin about -y); chassis reaction about +y (nose down = +My)
-          My += W.dir * Tw;
-          Mx += -r * Hs;                                   // gyroscope: turning rolls the robot
-        }
-      }
-      // ---- normal loads (lagged accelerations, as in the original)
-      const tip = shareLoads(c.dx, c.dy, m * G0, -h * m * s[8] + My, -h * m * s[9] - Mx, c.N, c.on);
-      // ---- wheels
-      let Fbx = 0, Fby = 0, Mzt = Mz, Ptire = 0, Pgear = Pw, Prr = 0;
-      const Tg = c.Tg; Tg.fill(0);
-      for (let i = 0; i < c.nw; i++) {
-        const wh = R.wheels[i], k = c.wheelGroup[i], N = c.N[i], w = s[c.iG + k], rw = wh.r;
-        const xi = c.dx[i], yi = c.dy[i];
-        const vcx = vbx - r * yi, vcy = vby + r * xi;
-        const sx = vcx - w * rw, sy = vcy, sm = Math.sqrt(sx * sx + sy * sy);
-        const vref = Math.max(Math.abs(w * rw), Math.sqrt(vcx * vcx + vcy * vcy), R.tire.vmin);
-        const sig = sm / vref, mu = tireMu(sig, R.tire.mus, R.tire.muk, R.tire.sigp);
-        let Fx = 0, Fy = 0;
-        if (sm > 1e-12) { Fx = -mu * N * sx / sm; Fy = -mu * N * sy / sm; }
-        Ptire += -(Fx * sx + Fy * sy); Fbx += Fx; Fby += Fy; Mzt += xi * Fy - yi * Fx;
-        const Trr = R.tire.crr * N * rw * Math.tanh(w * rw / 0.02);
-        Tg[k] += -Fx * rw - Trr; Prr += Trr * w;
-        if (dg) { (dg.wheels || (dg.wheels = []))[i] = { N, slip: sig, mu, Fx, Fy }; }
-      }
-      for (let k = 0; k < c.ng; k++) {
-        const g = gs[k], w = s[c.iG + k];
-        let Tout = 0;
-        if (g.motors) {
-          const Tm = g.motors * dm.Ke * I[k];
-          Tout = Tm * w >= 0 ? dm.eta * dm.G * Tm : dm.G * Tm / dm.etab;
-          Pgear += Tm * dm.G * w - Tout * w;
-        }
-        ds[c.iG + k] = (Tout + Tg[k]) / g.J;
-      }
-      // ---- skids
-      let Pskid = 0;
-      for (let j = 0; j < c.ns; j++) {
-        const sk = R.skids[j], i = c.nw + j, N = c.N[i], xi = c.dx[i], yi = c.dy[i];
-        const vcx = vbx - r * yi, vcy = vby + r * xi, vm = Math.sqrt(vcx * vcx + vcy * vcy);
-        const mub = sk.muk + (sk.mus - sk.muk) * Math.exp(-((vm / 0.01) ** 2));
-        const den = Math.sqrt(vm * vm + 0.005 * 0.005);
-        const Fx = -mub * N * vcx / den, Fy = -mub * N * vcy / den;
-        Pskid += -(Fx * vcx + Fy * vcy); Fbx += Fx; Fby += Fy; Mzt += xi * Fy - yi * Fx;
-      }
-      // ---- walls and the target (world frame), about the COG
-      let Pwall = 0, Ptg = 0, fwx = 0, fwy = 0;
-      const acc = [0, 0, 0];
-      const H = 0.5 * o.arena, nearWall = o.arena > 0 && (Math.abs(s[0]) > H - this.reachR || Math.abs(s[1]) > H - this.reachR);
-      const nearT = T && Math.hypot(T.x - s[0], T.y - s[1]) < this.reachR + 0.5 * Math.hypot(T.a, T.b);
-      if (nearWall || nearT) {
-        const WO = this.worldOutline(s), TP = nearT ? this.targetPoly(T) : null;
-        const pts = WO.pts.concat(WO.weapon);
-        for (const [px, py] of pts) {
-          const rx = px - s[0], ry = py - s[1], vx = s[3] - r * ry, vy = s[4] + r * rx;
-          if (nearWall) {
-            acc[0] = 0; acc[1] = 0; acc[2] = 0;
-            wallForces(px, py, vx, vy, H, this.A, acc);
-            fwx += acc[0]; fwy += acc[1]; Mzt += rx * acc[1] - ry * acc[0]; Pwall += acc[2];
-          }
-          if (nearT) {                                       // a robot point inside the target box
-            const hit = insideConvex(px, py, TP);
-            if (hit) {
-              const [d, nx, ny] = hit, tx = T.vx - T.r * (py - T.y), ty = T.vy + T.r * (px - T.x);
-              const rvx = vx - tx, rvy = vy - ty, vn = rvx * nx + rvy * ny, vt = -rvx * ny + rvy * nx;
-              let Nn = this.A.k * d - this.A.c * 0.5 * vn; if (Nn < 0) Nn = 0;
-              const Ft = -0.3 * Nn * Math.tanh(vt / 0.02);
-              const fx = Nn * nx - Ft * ny, fy = Nn * ny + Ft * nx;     // on the robot, out of the box
-              fwx += fx; fwy += fy; Mzt += rx * fy - ry * fx;
-              dT.fx -= fx; dT.fy -= fy; dT.mz -= (px - T.x) * fy - (py - T.y) * fx;
-              Ptg += -(fx * rvx + fy * rvy);
-            }
-          }
-        }
-        if (nearT) {                                         // target corners inside the robot outline
-          for (const [px, py] of TP) {
-            const hit = insideConvex(px, py, WO.pts);
-            if (!hit) continue;
-            const [d, nx, ny] = hit, rx = px - s[0], ry = py - s[1];
-            const vx = s[3] - r * ry, vy = s[4] + r * rx, tx = T.vx - T.r * (py - T.y), ty = T.vy + T.r * (px - T.x);
-            const rvx = tx - vx, rvy = ty - vy, vn = rvx * nx + rvy * ny, vt = -rvx * ny + rvy * nx;
-            let Nn = this.A.k * d - this.A.c * 0.5 * vn; if (Nn < 0) Nn = 0;
-            const Ft = -0.3 * Nn * Math.tanh(vt / 0.02);
-            const fx = Nn * nx - Ft * ny, fy = Nn * ny + Ft * nx;       // on the target, out of the robot
-            dT.fx += fx; dT.fy += fy; dT.mz += (px - T.x) * fy - (py - T.y) * fx;
-            fwx -= fx; fwy -= fy; Mzt -= rx * fy - ry * fx;
-            Ptg += -(fx * rvx + fy * rvy);
-          }
-        }
-        Fbx += cs * fwx + sn * fwy; Fby += -sn * fwx + cs * fwy;
-      }
-      const axb = Fbx / m, ayb = Fby / m;
-      ds[0] = s[3]; ds[1] = s[4]; ds[2] = r;
-      ds[3] = cs * axb - sn * ayb; ds[4] = sn * axb + cs * ayb;
-      ds[5] = Mzt / R.Izz;
-      ds[8] = (axb - s[8]) / R.tau; ds[9] = (ayb - s[9]) / R.tau;
-      if (W) ds[c.iW] = wI;
-      const E = c.iE, e = c.E;
-      ds[E + e.term] = Pterm; ds[E + e.cu] = Pcu; ds[E + e.gear] = Pgear; ds[E + e.tire] = Ptire; ds[E + e.skid] = Pskid;
-      ds[E + e.rr] = Prr; ds[E + e.wall] = Pwall; ds[E + e.wdrag] = Pwdrag; ds[E + e.bat] = R.battery.R * Ib * Ib;
-      ds[E + e.target] = Ptg;
-      if (dg) {
-        dg.N = Array.from(c.N); dg.I = Array.from(I); dg.IW = IW; dg.vbus = vbus; dg.Ib = Ib; dg.tip = tip;
-        dg.ax = axb; dg.ay = ayb; dg.My = My; dg.Mx = Mx;
-      }
-    }
-
-    // the target's own floor friction and walls (world), added to the robot's push on it (dT.fx, fy, mz)
-    targetDeriv(T, dT, out) {
-      const o = this.opts, g = T.m * G0;
-      let fx = dT.fx, fy = dT.fy, mz = dT.mz;
-      // floor friction at four corners (a quarter of the weight each)
-      for (const [px, py] of this.targetPoly(T)) {
-        const vx = T.vx - T.r * (py - T.y), vy = T.vy + T.r * (px - T.x), v = Math.hypot(vx, vy);
-        const f = T.mu * g / 4 / Math.sqrt(v * v + 0.005 * 0.005);
-        fx -= f * vx; fy -= f * vy; mz += (px - T.x) * (-f * vy) - (py - T.y) * (-f * vx);
-        if (o.arena > 0 && (Math.abs(px) > 0.5 * o.arena || Math.abs(py) > 0.5 * o.arena)) {
-          const acc = this.tacc; acc[0] = acc[1] = acc[2] = 0;
-          wallForces(px, py, vx, vy, 0.5 * o.arena, this.TA, acc);
-          fx += acc[0]; fy += acc[1]; mz += (px - T.x) * acc[1] - (py - T.y) * acc[0];
-        }
-      }
-      out[0] = T.vx; out[1] = T.vy; out[2] = T.r; out[3] = fx / T.m; out[4] = fy / T.m; out[5] = mz / T.I;
-    }
-
-    // one RK4 step: u = {L, R, W} (drive sides -1..1, weapon 0..1)
-    step(u) {
-      const h = this.opts.h, c = this.c, s = this.s, [k1, k2, k3, k4] = this.k, tmp = this.tmp;
-      this.uL = u.L; this.uR = u.R; this.uW = u.W;
-      const T = this.tg;
-      const tstate = q => ({ x: q[0], y: q[1], psi: q[2], vx: q[3], vy: q[4], r: q[5], m: T.m, I: T.I, a: T.a, b: T.b, mu: T.mu });
-      let tq = T ? Float64Array.from([T.x, T.y, T.psi, T.vx, T.vy, T.r]) : null;
-      const kt = T ? this.tk : null, tt = this.tt;
-      const ev = (q, qT, kk, kT, dg) => {
-        const dT = { fx: 0, fy: 0, mz: 0 };
-        const TT = qT ? tstate(qT) : null;
-        this.deriv(q, TT, u, kk, dT, dg);
-        if (TT) this.targetDeriv(TT, dT, kT);
-      };
-      ev(s, tq, k1, kt && kt[0], this.dg);
-      for (let i = 0; i < c.NS; i++) tmp[i] = s[i] + 0.5 * h * k1[i];
-      if (T) for (let i = 0; i < 6; i++) tt[i] = tq[i] + 0.5 * h * kt[0][i];
-      ev(tmp, T ? tt : null, k2, kt && kt[1], null);
-      for (let i = 0; i < c.NS; i++) tmp[i] = s[i] + 0.5 * h * k2[i];
-      if (T) for (let i = 0; i < 6; i++) tt[i] = tq[i] + 0.5 * h * kt[1][i];
-      ev(tmp, T ? tt : null, k3, kt && kt[2], null);
-      for (let i = 0; i < c.NS; i++) tmp[i] = s[i] + h * k3[i];
-      if (T) for (let i = 0; i < 6; i++) tt[i] = tq[i] + h * kt[2][i];
-      ev(tmp, T ? tt : null, k4, kt && kt[3], null);
-      for (let i = 0; i < c.NS; i++) s[i] += h / 6 * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]);
       if (T) {
-        for (let i = 0; i < 6; i++) tq[i] += h / 6 * (kt[0][i] + 2 * kt[1][i] + 2 * kt[2][i] + kt[3][i]);
-        [T.x, T.y, T.psi, T.vx, T.vy, T.r] = tq;
-      }
-      if (c.weapon) { this.wangle += s[c.iW] * h; if (s[c.iW] < 0 && c.weapon) s[c.iW] = Math.max(s[c.iW], -1e-9); }
-      this.charge += (this.dg.Ib || 0) * h;
-      this.t += h;
-      if (T && c.weapon) this.weaponHit();
+        const I = [T.m * (T.b * T.b + T.c * T.c) / 12, T.m * (T.a * T.a + T.c * T.c) / 12, T.m * (T.a * T.a + T.b * T.b) / 12];
+        this.tg = { p: [T.x, T.y, T.c / 2 - 0.0005], v: v3(), q: qyaw(T.psi || 0), w: v3(), m: T.m, I, a: T.a, b: T.b, c: T.c, mu: T.mu };
+      } else this.tg = null;
+      this.E = { hit: 0 };
+    }
+    settle() {                                          // static sink of the contacts under the robot's weight
+      const R = this.R, o = this.opts, W = R.m * G0;
+      const kw = R.wheels.length * o.k_tire + R.skids.length * o.k_hard;
+      return -W / Math.max(kw, 1);
     }
 
-    // a weapon hit on the target: an impulse along the tooth's motion, once per tooth
+    // forces and moments on the chassis, the wheels' and weapon's torques, the target's forces
+    forces() {
+      const c = this.c, R = this.R, o = this.opts, u = this.u, q = this.q, p = this.p, v = this.v;
+      const ww = qrot(q, this.w);                         // world angular velocity
+      const [qw, qx, qy, qz] = q;                          // the third row of the rotation: a point's height, cheaply
+      const r20 = 2 * (qx * qz - qw * qy), r21 = 2 * (qy * qz + qw * qx), r22 = 1 - 2 * (qx * qx + qy * qy);
+      const zOf = b => p[2] + r20 * b[0] + r21 * b[1] + r22 * b[2];
+      // world force and moment about the COG, accumulated as plain numbers (no garbage in the hot loops)
+      let Fx = 0, Fy = 0, Fz = -R.m * G0, Mx_ = 0, My_ = 0, Mz_ = 0;
+      const applyS = (fx, fy, fz, rx, ry, rz) => { Fx += fx; Fy += fy; Fz += fz; Mx_ += ry * fz - rz * fy; My_ += rz * fx - rx * fz; Mz_ += rx * fy - ry * fx; };
+      const apply = (f, r) => applyS(f[0], f[1], f[2], r[0], r[1], r[2]);
+      const velAt = r => add(v, cross(ww, r));
+      // the full rotation, for points
+      const R00 = 1 - 2 * (q[2] * q[2] + q[3] * q[3]), R01 = 2 * (q[1] * q[2] - q[0] * q[3]), R02 = 2 * (q[1] * q[3] + q[0] * q[2]);
+      const R10 = 2 * (q[1] * q[2] + q[0] * q[3]), R11 = 1 - 2 * (q[1] * q[1] + q[3] * q[3]), R12 = 2 * (q[2] * q[3] - q[0] * q[1]);
+      // ---- motors on the bus
+      const gs = c.groups, dm = c.dmotor, W = c.weapon;
+      const I = c.Ibuf || (c.Ibuf = new Float64Array(c.ng));
+      const uOf = g => g.side === "L" ? u.L : (g.side === "R" ? u.R : 0);
+      let uw = u.W || 0;
+      if (W && W.rpm_cap > 0) { const cap = W.rpm_cap * Math.PI / 30; uw *= Math.max(0, Math.min(1, (cap - this.ww) / (0.02 * cap))); }
+      let vbus = R.battery.V, IW = 0;
+      const busPower = () => {
+        let P = 0;
+        for (let k = 0; k < c.ng; k++) { const g = gs[k]; if (!g.motors) { I[k] = 0; continue; } const wm = this.wg[k] * dm.G; I[k] = motorCurrent(uOf(g), wm, vbus, dm); P += g.motors * (I[k] * dm.R + dm.Ke * wm) * I[k]; }
+        if (W) { const wm = this.ww * W.G; IW = motorCurrent(uw, wm, vbus, c.wmotor); P += W.n * (IW * c.wmotor.R + c.wmotor.Ke * wm) * IW; }
+        return P;
+      };
+      for (let it = 0; it < 10; it++) vbus = 0.4 * vbus + 0.6 * (R.battery.V - R.battery.R * busPower() / vbus);
+      const Pbus = busPower(), Ib = Pbus / vbus;
+      // ---- wheels
+      const Tg = new Float64Array(c.ng), axle = qrot(q, [0, 1, 0]);
+      const h = o.h;
+      const wheels = [];
+      let ground = 0;
+      for (let i = 0; i < c.wheels.length; i++) {
+        const wh = c.wheels[i], k = c.wheelGroup[i], cw = qrot(q, wh.c), center = add(p, cw);
+        // the lowest point of the disc
+        let d = [-axle[0] * -axle[2], -axle[1] * -axle[2], -1 + axle[2] * axle[2]];   // -z minus its part along the axle
+        const dn = norm(d); let N = 0, slip = 0, mu = 0;
+        if (dn > 0.05) {
+          d = mul(d, 1 / dn);
+          const s = add(center, mul(d, wh.r)), pen = -s[2];
+          if (pen > 0) {
+            const r = sub(s, p), vs = velAt(r), rim = cross(mul(axle, this.wg[k]), sub(s, center)), vc = add(vs, rim);
+            N = o.k_tire * pen - o.c_tire * vs[2]; if (N < 0) N = 0;
+            const vt = [vc[0], vc[1], 0], sm = Math.hypot(vt[0], vt[1]);
+            const vref = Math.max(Math.abs(this.wg[k] * wh.r), Math.hypot(vs[0], vs[1]), R.tire.vmin);
+            slip = sm / vref; mu = tireMu(slip, R.tire.mus, R.tire.muk, R.tire.sigp);
+            const Ft = sm > 1e-12 ? [-mu * N * vt[0] / sm, -mu * N * vt[1] / sm, 0] : v3();
+            const f = add(Ft, [0, 0, N]);
+            // the wheel keeps the torque about its axle; the chassis takes the rest through the bearing
+            let tAx = dot(cross(sub(s, center), Ft), axle);
+            // never more than brings the tread to the ground's speed this step (a light idler wheel would otherwise
+            // flip back and forth: its spin is far stiffer than anything else here)
+            const gJ = c.groups[k].J, lim = sm / wh.r * gJ / h;
+            if (Math.abs(tAx) > lim) tAx = Math.sign(tAx) * lim;
+            const Trr = R.tire.crr * N * wh.r * Math.tanh(this.wg[k] * wh.r / 0.02);
+            Tg[k] += tAx - Trr;
+            apply(f, r);                                  // the whole contact force, at the contact
+            ground++;
+          }
+        }
+        wheels.push({ N, slip, mu, lifted: N <= 0 });
+      }
+      for (let k = 0; k < c.ng; k++) {
+        const g = gs[k]; if (!g.motors) continue;
+        const Tm = g.motors * dm.Ke * I[k], w = this.wg[k];
+        const Tout = Tm * w >= 0 ? dm.eta * dm.G * Tm : dm.G * Tm / dm.etab;
+        Tg[k] += Tout;
+      }
+      // ---- skids, the body outline, the weapon rim: floor, walls, ceiling
+      const H = 0.5 * o.arena, near = o.arena > 0 && (Math.abs(p[0]) > H - c.reach || Math.abs(p[1]) > H - c.reach);
+      const lowEnough = p[2] < c.reach;
+      const skidN = [];
+      for (const sk of c.skids) {
+        let N = 0;
+        if (zOf(sk.p) >= 0) { skidN.push(0); continue; }
+        const r = qrot(q, sk.p), s = add(p, r);
+        if (s[2] < 0) {
+          const vs = velAt(r);
+          N = o.k_hard * -s[2] - o.c_hard * vs[2]; if (N < 0) N = 0;
+          const vm = Math.hypot(vs[0], vs[1]), mub = sk.muk + (sk.mus - sk.muk) * Math.exp(-((vm / 0.01) ** 2)), den = Math.sqrt(vm * vm + 2.5e-5);
+          apply([-mub * N * vs[0] / den, -mub * N * vs[1] / den, N], r);
+        }
+        skidN.push(N);
+      }
+      let bodyHit = 0;
+      const hard = (b, mu) => {                          // a point of the robot against floor, walls, ceiling
+        const rz = r20 * b[0] + r21 * b[1] + r22 * b[2], sz = p[2] + rz;
+        const ceil = o.ceiling > 0 && sz > o.ceiling;
+        if (sz > 0 && !near && !ceil) return;
+        const rx = R00 * b[0] + R01 * b[1] + R02 * b[2], ry = R10 * b[0] + R11 * b[1] + R12 * b[2];
+        const sx = p[0] + rx, sy = p[1] + ry;
+        if (sz > 0 && !ceil && Math.abs(sx) < H && Math.abs(sy) < H) return;     // near a wall, but not this point
+        const vx = v[0] + ww[1] * rz - ww[2] * ry, vy = v[1] + ww[2] * rx - ww[0] * rz, vz = v[2] + ww[0] * ry - ww[1] * rx;
+        if (sz < 0 && lowEnough) {
+          const N = o.k_hard * -sz - o.c_hard * vz;
+          if (N > 0) { const den = Math.sqrt(vx * vx + vy * vy + 2.5e-5), k = -mu * N / den; applyS(k * vx, k * vy, N, rx, ry, rz); bodyHit++; }
+        }
+        if (near) {
+          for (let ax = 0; ax < 2; ax++) for (let si = 0; si < 2; si++) {
+            const sg = si ? -1 : 1, pen = sg * (ax ? sy : sx) - H; if (pen <= 0) continue;
+            const vn = sg * (ax ? vy : vx), N = o.k_hard * pen + o.c_hard * vn; if (N <= 0) continue;
+            const tx = ax ? vx : 0, ty = ax ? 0 : vy, tz = vz, den = Math.sqrt(tx * tx + ty * ty + tz * tz + 2.5e-5), k = -o.mu_wall * N / den;
+            applyS(k * tx - (ax ? 0 : sg * N), k * ty - (ax ? sg * N : 0), k * tz, rx, ry, rz);
+          }
+        }
+        if (ceil) { const N = o.k_hard * (sz - o.ceiling) + o.c_hard * vz; if (N > 0) applyS(0, 0, -N, rx, ry, rz); }
+      };
+      for (const r0 of c.hull) hard(r0, o.mu_body);
+      // the weapon's rim: its surface moves with the spin, so touching the floor or a wall drags on the blade and
+      // kicks the robot (an undercutter tipped onto its blade, a vertical clipping the wall)
+      let wtau = 0;
+      if (W) {
+        const sw = qrot(q, c.waxis), cwW = qrot(q, c.wc);
+        const rim = (r, s0, pen, n) => {
+          let vs = velAt(r); vs = add(vs, cross(mul(sw, this.ww), sub(r, cwW)));
+          const vn = dot(vs, n); let N = o.k_hard * pen - o.c_hard * vn; if (N <= 0) return;
+          const vt = sub(vs, mul(n, vn)), vm = norm(vt), f = add(mul(n, N), vm > 1e-9 ? mul(vt, -0.3 * N / Math.sqrt(vm * vm + 2.5e-5)) : v3());
+          apply(f, r); wtau += dot(cross(sub(r, cwW), f), sw); bodyHit++;
+        };
+        for (const r0 of c.wrim) {
+          const z0 = zOf(r0);
+          if (z0 > 0) {
+            if (!near) continue;
+            const sx = p[0] + R00 * r0[0] + R01 * r0[1] + R02 * r0[2], sy = p[1] + R10 * r0[0] + R11 * r0[1] + R12 * r0[2];
+            if (Math.abs(sx) < H && Math.abs(sy) < H) continue;
+          }
+          const r = qrot(q, r0), sp = add(p, r);
+          if (sp[2] < 0 && lowEnough) rim(r, sp, -sp[2], [0, 0, 1]);
+          if (near) for (let ax = 0; ax < 2; ax++) for (const sg of [1, -1]) { const pen = sg * sp[ax] - H; if (pen > 0) { const n = [0, 0, 0]; n[ax] = -sg; rim(r, sp, pen, n); } }
+        }
+      }
+      for (const wh of c.wheels) {                       // wheels against walls (their outer rim, four points)
+        if (!near) break;
+        for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) hard(add(wh.c, [a * wh.r, 0, b * wh.r]), 0.6);
+      }
+      // ---- the target box
+      let tgF = null;
+      if (this.tg) tgF = this.targetContacts(apply, velAt);
+      // ---- the weapon
+      let wdot = 0, Tw = 0;
+      if (W) {
+        const wm = this.ww * W.G;
+        const Tm = W.n * c.wmotor.Ke * IW * W.G, Tout = Tm * this.ww >= 0 ? W.eta * Tm : Tm / W.eta;
+        const Td = W.drag * this.ww * Math.abs(this.ww) + W.drag0 * Math.tanh(this.ww / 1.0);
+        Tw = Tout - Td; wdot = (Tw + wtau) / W.I; void wm;
+      }
+      const F = [Fx, Fy, Fz], M = [Mx_, My_, Mz_];
+      return { F, M, Tg, I, IW, vbus, Ib, wheels, skidN, wdot, Tw, ground, bodyHit, tgF };
+    }
+
+    // robot points inside the target box, and the box's corners inside the robot's body prism
+    targetContacts(apply, velAt) {
+      const T = this.tg, o = this.opts, c = this.c, q = this.q, p = this.p;
+      const dist = norm(sub(T.p, p));
+      const tF = { F: v3(), M: v3() };
+      if (dist > c.reach + Math.hypot(T.a, T.b, T.c)) return tF;
+      const twv = qrot(T.q, T.w), tvel = r => add(T.v, cross(twv, r));
+      const k = o.k_hard * 0.5, cdmp = o.c_hard * 0.5, mu = 0.35;
+      const push = (fOnRobot, rR, rT) => { apply(fOnRobot, rR); tF.F = sub(tF.F, fOnRobot); tF.M = sub(tF.M, cross(rT, fOnRobot)); };
+      // robot points in the box
+      const pts = c.hull.concat(c.wrim || []);
+      const hx = T.a / 2, hy = T.b / 2, hz = T.c / 2;
+      for (const r0 of pts) {
+        const rR = qrot(q, r0), s = add(p, rR), rT = sub(s, T.p), l = qrot(qconj(T.q), rT);
+        const dx = hx - Math.abs(l[0]), dy = hy - Math.abs(l[1]), dz = hz - Math.abs(l[2]);
+        if (dx <= 0 || dy <= 0 || dz <= 0) continue;
+        let nl, d;
+        if (dx <= dy && dx <= dz) { nl = [Math.sign(l[0]), 0, 0]; d = dx; } else if (dy <= dz) { nl = [0, Math.sign(l[1]), 0]; d = dy; } else { nl = [0, 0, Math.sign(l[2])]; d = dz; }
+        const n = qrot(T.q, nl), rv = sub(velAt(rR), tvel(rT)), vn = dot(rv, n);
+        let N = k * d - cdmp * vn; if (N <= 0) continue;
+        const vt = sub(rv, mul(n, vn)), vm = norm(vt);
+        const f = add(mul(n, N), vm > 1e-9 ? mul(vt, -mu * N * Math.tanh(vm / 0.02) / vm) : v3());
+        push(f, rR, rT);
+      }
+      // box corners in the robot's prism
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+        const rT = qrot(T.q, [sx * hx, sy * hy, sz * hz]), s = add(T.p, rT), rR = sub(s, p), l = qrot(qconj(q), rR);
+        if (l[2] < c.zlo || l[2] > c.zhi) continue;
+        const hit = insidePoly(l[0], l[1], c.poly); if (!hit) continue;
+        let [d, nx, ny] = hit, nl = [nx, ny, 0];
+        const dzlo = l[2] - c.zlo, dzhi = c.zhi - l[2];
+        if (dzlo < d) { d = dzlo; nl = [0, 0, -1]; } if (dzhi < d) { d = dzhi; nl = [0, 0, 1]; }
+        const n = qrot(q, nl), rv = sub(tvel(rT), velAt(rR)), vn = dot(rv, n);
+        let N = k * d - cdmp * vn; if (N <= 0) continue;
+        const vt = sub(rv, mul(n, vn)), vm = norm(vt);
+        const fT = add(mul(n, N), vm > 1e-9 ? mul(vt, -mu * N * Math.tanh(vm / 0.02) / vm) : v3());
+        push(mul(fT, -1), rR, rT);
+      }
+      return tF;
+    }
+
+    // the target's own floor, walls and weight
+    targetStep(h, tF) {
+      const T = this.tg, o = this.opts, k = o.k_hard * 0.5, cd = 2 * 0.35 * Math.sqrt(k * T.m / 4);
+      let F = add(tF.F, [0, 0, -T.m * G0]), M = tF.M.slice();
+      const twv = qrot(T.q, T.w), H = 0.5 * o.arena;
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+        const r = qrot(T.q, [sx * T.a / 2, sy * T.b / 2, sz * T.c / 2]), s = add(T.p, r), vs = add(T.v, cross(twv, r));
+        const contact = (pen, n, vn) => {
+          let N = k * pen - cd * vn; if (N <= 0) return;
+          const vt = sub(vs, mul(n, dot(vs, n))), vm = norm(vt);
+          const f = add(mul(n, N), vm > 1e-9 ? mul(vt, -T.mu * N / Math.sqrt(vm * vm + 2.5e-5)) : v3());
+          F = add(F, f); M = add(M, cross(r, f));
+        };
+        if (s[2] < 0) contact(-s[2], [0, 0, 1], vs[2]);
+        if (o.arena > 0) for (let ax = 0; ax < 2; ax++) for (const sg of [1, -1]) { const pen = sg * s[ax] - H; if (pen > 0) { const n = [0, 0, 0]; n[ax] = -sg; contact(pen, n, -sg * vs[ax]); } }
+        if (o.ceiling > 0 && s[2] > o.ceiling) contact(s[2] - o.ceiling, [0, 0, -1], -vs[2]);
+      }
+      T.v = add(T.v, mul(F, h / T.m));
+      const Mb = qrot(qconj(T.q), M), w = T.w;
+      const Iw = [T.I[0] * w[0], T.I[1] * w[1], T.I[2] * w[2]], gyr = cross(w, Iw);
+      T.w = [w[0] + h * (Mb[0] - gyr[0]) / T.I[0], w[1] + h * (Mb[1] - gyr[1]) / T.I[1], w[2] + h * (Mb[2] - gyr[2]) / T.I[2]];
+      T.p = add(T.p, mul(T.v, h)); T.q = qint(T.q, T.w, h);
+    }
+
+    step(u) {
+      const h = this.opts.h, c = this.c, R = this.R;
+      this.u = u;
+      const f = this.forces();
+      // chassis: semi-implicit Euler, the weapon's momentum carried in the rotation
+      this.v = add(this.v, mul(f.F, h / R.m));
+      const Mb = qrot(qconj(this.q), f.M), w = this.w, I = c.I;
+      let H = v3(), Hdot = v3();
+      if (c.weapon) { H = mul(c.waxis, c.weapon.I * this.ww); Hdot = mul(c.waxis, c.weapon.I * f.wdot); }
+      for (let k = 0; k < c.ng; k++) {                   // the drive's spinning parts: about the axle (body y)
+        const g = c.groups[k]; H[1] += g.Jmom * this.wg[k]; Hdot[1] += g.Jmom * f.Tg[k] / g.J;
+      }
+      // I (w' - w) / h = M - w x I w - w' x H - dH/dt: the spinning parts' gyroscope taken at the new rate (implicit),
+      // stable at any weapon speed (explicit, a fast blade's nutation grows by itself)
+      const Iw = [I[0] * w[0], I[1] * w[1], I[2] * w[2]], gyr = cross(w, Iw);
+      const rhs = [I[0] / h * w[0] + Mb[0] - gyr[0] - Hdot[0], I[1] / h * w[1] + Mb[1] - gyr[1] - Hdot[1], I[2] / h * w[2] + Mb[2] - gyr[2] - Hdot[2]];
+      // (diag(I / h) - [H]x) w' = rhs, with [H]x the cross-product matrix (w' x H = -[H]x w')
+      const A = [[I[0] / h, H[2], -H[1]], [-H[2], I[1] / h, H[0]], [H[1], -H[0], I[2] / h]];
+      this.w = solve3(A, rhs);
+      this.p = add(this.p, mul(this.v, h));
+      this.q = qint(this.q, this.w, h);
+      for (let k = 0; k < c.ng; k++) this.wg[k] += h * f.Tg[k] / c.groups[k].J;
+      if (c.weapon) { this.ww = Math.max(0, this.ww + h * f.wdot); this.wangle += this.ww * h; }
+      if (this.tg) { this.targetStep(h, f.tgF); if (c.weapon) this.weaponHit(); }
+      this.charge += f.Ib * h; this.t += h;
+      this.dg = f;
+    }
+
+    // a tooth on the target: an impulse along the tooth's motion, once per tooth
     weaponHit() {
-      const c = this.c, W = c.weapon, s = this.s, T = this.tg, R = this.R;
-      const ww = s[c.iW]; if (ww < 1) return;
-      const cs = Math.cos(s[2]), sn = Math.sin(s[2]);
-      const wx = s[0] + cs * c.wdx - sn * c.wdy, wy = s[1] + sn * c.wdx + cs * c.wdy;   // weapon centre
-      const poly = this.targetPoly(T);
-      // the target point nearest the weapon centre, and whether it is inside the weapon's reach
-      let best = null;
-      const reach = W.type === "horizontal" ? W.radius : W.radius;
-      for (let i = 0; i < 4; i++) {
-        const a = poly[i], b = poly[(i + 1) % 4], ex = b[0] - a[0], ey = b[1] - a[1];
-        const tpar = Math.max(0, Math.min(1, ((wx - a[0]) * ex + (wy - a[1]) * ey) / (ex * ex + ey * ey)));
-        const qx = a[0] + tpar * ex, qy = a[1] + tpar * ey, d = Math.hypot(qx - wx, qy - wy);
-        if (!best || d < best.d) best = { d, qx, qy };
-      }
-      const inside = insideConvex(wx, wy, poly);
-      if (!inside && best.d > reach) return;
-      if (W.type !== "horizontal") {                       // a vertical weapon reaches out in front only
-        const fx = (best.qx - wx) * cs + (best.qy - wy) * sn;
-        if (fx < 0.3 * reach) return;
-      }
+      const c = this.c, W = c.weapon, T = this.tg, R = this.R;
+      if (this.ww < 5) return;
       const period = 2 * Math.PI / Math.max(W.teeth, 1);
       if (this.wangle - this.lastBite < period) return;
-      // tooth velocity at the contact (weapon spin + the robot's own motion) against the target point
-      const rx = best.qx - wx, ry = best.qy - wy, rc = Math.max(Math.hypot(rx, ry), 0.3 * W.radius);
-      let tdx, tdy;
-      if (W.type === "horizontal") { tdx = -W.dir * ry / Math.hypot(rx, ry || 1e-9); tdy = W.dir * rx / Math.hypot(rx, ry || 1e-9); }
-      else { tdx = cs; tdy = sn; }                         // vertical: its horizontal push is along the robot's heading
-      const vtip = ww * rc * (W.type === "horizontal" ? 1 : W.flingShare);
-      const rbx = best.qx - s[0], rby = best.qy - s[1];
-      const vrx = s[3] - s[5] * rby, vry = s[4] + s[5] * rbx;
-      const tvx = T.vx - T.r * (best.qy - T.y), tvy = T.vy + T.r * (best.qx - T.x);
-      const vrel = vtip + (vrx - tvx) * tdx + (vry - tvy) * tdy;
+      const q = this.q, cw = add(this.p, qrot(q, c.wc)), a = qrot(q, c.waxis);
+      // the target point nearest the weapon centre (box clamp in its own frame)
+      const l = qrot(qconj(T.q), sub(cw, T.p)), cl = [Math.max(-T.a / 2, Math.min(T.a / 2, l[0])), Math.max(-T.b / 2, Math.min(T.b / 2, l[1])), Math.max(-T.c / 2, Math.min(T.c / 2, l[2]))];
+      const qp = add(T.p, qrot(T.q, cl)), d = sub(qp, cw), ax = dot(d, a), rad = sub(d, mul(a, ax)), rr = norm(rad);
+      const half = W.type === "horizontal" ? W.thick / 2 + 0.004 : W.thick / 2 + 0.004;
+      if (Math.abs(ax) > half || rr > W.radius || rr < 0.25 * W.radius) return;
+      const tdir = mul(cross(a, rad), 1 / rr);           // where the tooth is going there
+      const rR = sub(qp, this.p), vR = add(this.v, cross(qrot(q, this.w), rR));
+      const rT = sub(qp, T.p), vT = add(T.v, cross(qrot(T.q, T.w), rT));
+      const vrel = this.ww * rr + dot(sub(vR, vT), tdir);
       if (vrel <= 0) return;
-      // effective mass: the blade at the tooth (I / r^2), the target at that point, the robot behind the bearing
-      const rtx = best.qx - T.x, rty = best.qy - T.y, ct = rtx * tdy - rty * tdx;
-      const invT = 1 / T.m + ct * ct / T.I;
-      const cr = rbx * tdy - rby * tdx, invR = 1 / R.m + cr * cr / R.Izz;
-      const invB = rc * rc / W.I;
-      const J = (1 + W.bite_e) * vrel / (invT + invB + invR);
-      // impulses: target pushed along the tooth, the blade slowed, the robot kicked back through the bearing
-      T.vx += J * tdx / T.m; T.vy += J * tdy / T.m; T.r += J * ct / T.I;
-      const E0 = 0.5 * W.I * ww * ww;
-      s[c.iW] = Math.max(0, ww - J * rc / W.I);
-      s[3] -= J * tdx / R.m; s[4] -= J * tdy / R.m; s[5] -= J * cr / R.Izz;
+      // effective masses along the tooth: the target, the blade (I / r^2), the robot behind the bearing
+      const invI = (Ib, Iq, r) => { const rb = qrot(qconj(Iq), cross(r, tdir)); return rb[0] * rb[0] / Ib[0] + rb[1] * rb[1] / Ib[1] + rb[2] * rb[2] / Ib[2]; };
+      const kT = 1 / T.m + invI(T.I, T.q, rT), kB = rr * rr / W.I, kR = 1 / R.m + invI(c.I, q, sub(cw, this.p));
+      const J = (1 + W.bite_e) * vrel / (kT + kB + kR);
+      const Jv = mul(tdir, J);
+      // the target
+      T.v = add(T.v, mul(Jv, 1 / T.m));
+      const dL = qrot(qconj(T.q), cross(rT, Jv)); T.w = [T.w[0] + dL[0] / T.I[0], T.w[1] + dL[1] / T.I[1], T.w[2] + dL[2] / T.I[2]];
+      // the blade slows; the robot is kicked back at the bearing
+      const E0 = 0.5 * W.I * this.ww * this.ww;
+      this.ww = Math.max(0, this.ww - J * rr / W.I);
+      this.v = sub(this.v, mul(Jv, 1 / R.m));
+      const rc = sub(cw, this.p), mb = qrot(qconj(q), cross(rc, Jv)); this.w = [this.w[0] - mb[0] / c.I[0], this.w[1] - mb[1] / c.I[1], this.w[2] - mb[2] / c.I[2]];
       this.lastBite = this.wangle;
-      const dE = E0 - 0.5 * W.I * s[c.iW] ** 2;
-      this.hits.push({ t: this.t, J, dE, x: best.qx, y: best.qy, vtip: ww * rc });
+      const dE = E0 - 0.5 * W.I * this.ww * this.ww;
+      this.hits.push({ t: this.t, J, dE, x: qp[0], y: qp[1], z: qp[2], vtip: this.ww * rr });
       if (this.hits.length > 50) this.hits.shift();
-      s[c.iE + c.E.target] += 0;                            // the hit's energy is booked by the ledger as a jump (see ledger())
-      this.hitEnergy = (this.hitEnergy || 0) + dE;
     }
 
     get state() {
-      const s = this.s, c = this.c, R = this.R, cs = Math.cos(s[2]), sn = Math.sin(s[2]);
+      const q = this.q, R = this.R, c = this.c, f = this.dg || {};
+      const fwd = qrot(q, [1, 0, 0]), up = qrot(q, [0, 0, 1]);
+      const ref = sub(this.p, qrot(q, [R.cog.x, R.cog.y, R.cog.h]));
       return {
-        t: this.t, x: s[0] - (cs * R.cog.x - sn * R.cog.y), y: s[1] - (sn * R.cog.x + cs * R.cog.y), xcog: s[0], ycog: s[1],
-        psi: s[2], vx: s[3], vy: s[4], speed: Math.hypot(s[3], s[4]), vfwd: cs * s[3] + sn * s[4], r: s[5],
-        groups: c.groups.map((g, k) => s[c.iG + k]), ww: c.weapon ? s[c.iW] : 0, wangle: this.wangle,
-        uL: this.uL, uR: this.uR, uW: this.uW, mAh: this.charge / 3.6, target: this.tg, ...this.dg,
+        t: this.t, x: ref[0], y: ref[1], z: ref[2], xcog: this.p[0], ycog: this.p[1], zcog: this.p[2], q: this.q.slice(),
+        psi: Math.atan2(fwd[1], fwd[0]), pitch: Math.asin(Math.max(-1, Math.min(1, -fwd[2]))), roll: Math.atan2(qrot(q, [0, 1, 0])[2], up[2]),
+        upsideDown: up[2] < 0, vx: this.v[0], vy: this.v[1], vz: this.v[2], speed: Math.hypot(this.v[0], this.v[1]), vfwd: fwd[0] * this.v[0] + fwd[1] * this.v[1],
+        r: qrot(q, this.w)[2], groups: Array.from(this.wg), ww: this.ww, wangle: this.wangle,
+        uL: this.u.L, uR: this.u.R, uW: this.u.W, mAh: this.charge / 3.6, vbus: f.vbus, Ib: f.Ib,
+        wheels: f.wheels || [], skidN: f.skidN || [], target: this.tg, bodyHit: f.bodyHit,
       };
     }
     kinetic() {
-      const s = this.s, c = this.c, R = this.R;
-      let ke = 0.5 * R.m * (s[3] ** 2 + s[4] ** 2) + 0.5 * R.Izz * s[5] ** 2;
-      c.groups.forEach((g, k) => { ke += 0.5 * g.J * s[c.iG + k] ** 2; });
-      if (c.weapon) ke += 0.5 * c.weapon.I * s[c.iW] ** 2;
-      if (this.tg) { const T = this.tg; ke += 0.5 * T.m * (T.vx ** 2 + T.vy ** 2) + 0.5 * T.I * T.r ** 2; }
+      const c = this.c, R = this.R, w = this.w;
+      let ke = 0.5 * R.m * dot(this.v, this.v) + 0.5 * (c.I[0] * w[0] * w[0] + c.I[1] * w[1] * w[1] + c.I[2] * w[2] * w[2]);
+      c.groups.forEach((g, k) => { ke += 0.5 * g.J * this.wg[k] ** 2; });
+      if (c.weapon) ke += 0.5 * c.weapon.I * this.ww * this.ww;
       return ke;
     }
-    energies() { const c = this.c, o = {}; for (const k in c.E) o[k] = this.s[c.iE + c.E[k]]; return o; }
+  }
+  function solve3(A, b) {                               // Cramer's rule, 3 x 3
+    const d = A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1]) - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0]) + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
+    const col = (k) => A.map((r, i) => r.map((v, j) => (j === k ? b[i] : v)));
+    const det = M => M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+    return [det(col(0)) / d, det(col(1)) / d, det(col(2)) / d];
+  }
+  function insidePoly(px, py, Q) {                      // counter-clockwise convex polygon: [depth, nx, ny] or null
+    let best = Infinity, bn = null;
+    for (let i = 0; i < Q.length; i++) {
+      const a = Q[i], b = Q[(i + 1) % Q.length];
+      let ex = b[0] - a[0], ey = b[1] - a[1]; const L = Math.hypot(ex, ey) || 1e-12; ex /= L; ey /= L;
+      const nx = ey, ny = -ex, d = (px - a[0]) * nx + (py - a[1]) * ny;
+      if (d > 0) return null;
+      if (-d < best) { best = -d; bn = [nx, ny]; }
+    }
+    return [best, bn[0], bn[1]];
   }
 
-  const api = { Sim, compile, shareLoads, tireMu, motorCurrent, solve3 };
+  const api = { Sim, compile, tireMu, motorCurrent, qrot, qmul, qconj, qyaw };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else { root.RDS = root.RDS || {}; root.RDS.physics = api; }
 })(typeof window !== "undefined" ? window : globalThis);

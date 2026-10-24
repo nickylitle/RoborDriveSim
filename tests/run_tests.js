@@ -1,6 +1,6 @@
 /* node tests/run_tests.js : the physics against the model it came from, and its own checks. No packages needed. */
 "use strict";
-const P = require("../src/physics.js"), B = require("../src/robots.js");
+const P = require("../src/planar.js"), B = require("../src/robots.js");
 let fails = 0, n = 0;
 function check(ok, what, got) { n++; if (!ok) fails++; console.log(`${ok ? "PASS" : "FAIL"} ${what}${got !== undefined ? "  (" + got + ")" : ""}`); }
 const near = (a, b, rel) => Math.abs(a - b) <= rel * Math.abs(b);
