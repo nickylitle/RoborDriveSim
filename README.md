@@ -31,7 +31,7 @@ Press **Setup** and answer the questions. Start from an archetype and change wha
 | Split-pod vertical | two drive pods, the disc in the slot between them, hinged front plates |
 | Hub undercutter | horizontal blade on a hubmotor out front, 2WD at the back |
 | Fork wedge | long side forks and centre forks on the floor, 2WD, no weapon |
-| Big-wheel | two huge wheels, the body hung on the axle, legs trailing to the floor, a horizontal bar between the wheels |
+| Big-wheel | two huge wheels, the body hung on the axle, legs trailing to the floor, a vertical blade out front between the wheels |
 | Eggbeater | short wide beater between two uprights, forks under it, 4WD |
 | 4WD pusher | four wheels chained per side, no weapon |
 
@@ -52,7 +52,8 @@ What it asks:
   steering left at full throttle; invert when upside down; key ramp; precision; weapon toggle or hold.
 
 Measure every position in mm from one point on your robot (the drive axle centre is handy), with x forward and y left.
-Heights are above the floor. Tick **advanced** for motor constants, tire curve, pack resistance and weapon inertia.
+Heights are above the floor. Setup warns when the weapon doesn't reach past the front of the body and wheels (the chassis would hit first).
+Tick **advanced** for motor constants, tire curve, pack resistance and weapon inertia.
 **Save** keeps a robot in your browser; **Export** and **Import** move it around as a `.robot.json` file.
 
 ## Motors
@@ -137,7 +138,11 @@ spin-up torque, so the chassis twists round. At about 2000 deg/s the drive motor
 enough to lift a wheel on its narrow wheel-to-skid tipping line. This depends on the weapon ESC limit and the rotor
 inertia, both estimates.
 
-The big-wheel archetype shows the same thing harder. Spin its bar up while driving flat out and the chassis twists
+The big-wheel archetype's body swings on its axle and its legs stop it only one way. With the vertical blade's front
+moving down, spin-up presses the legs into the floor. Spun as an uppercut, the kick tips the nose down, the blade
+touches the floor and it faceplants.
+
+The big-wheel archetype also shows the drive-while-spinning-up effect harder. Spin its bar up while driving flat out and the chassis twists
 round; its big wheels are gyros, so the yaw rolls it onto one wheel. Spin up first, then drive, and it is fine.
 
 ## Limits

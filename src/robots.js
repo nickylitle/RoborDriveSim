@@ -94,7 +94,7 @@
       tire: "urethane", skids: [{ x: 105, y: 40, type: "steel" }, { x: 105, y: -40, type: "steel" }],
       drive: { motor: "compact1806", esc_A: 20, brake: true, drive_V: 0 },
       battery: { cells: 4, mAh: 650, R_mohm: 40 },
-      weapon: { type: "vertical", x: 70, y: 0, z: 62, d: 110, mass_g: 300, shape: "disc", thick: 12, teeth: 2, dir: 1,
+      weapon: { type: "vertical", x: 85, y: 0, z: 62, d: 110, mass_g: 300, shape: "disc", thick: 12, teeth: 2, dir: 1,
                 motor: "m2207_1950", motors: 1, ratio: 1.5, esc_A: 40 },
     },
     drum: {
@@ -106,7 +106,7 @@
       tire: "urethane", skids: [{ x: 85, y: 45, type: "steel" }, { x: 85, y: -45, type: "steel" }],
       drive: { motor: "compact1806", esc_A: 20, brake: true, drive_V: 0 },
       battery: { cells: 4, mAh: 650, R_mohm: 40 },
-      weapon: { type: "drum", x: 65, y: 0, z: 36, d: 60, mass_g: 380, shape: "tube", thick: 90, teeth: 2, dir: 1,
+      weapon: { type: "drum", x: 75, y: 0, z: 36, d: 60, mass_g: 380, shape: "tube", thick: 90, teeth: 2, dir: 1,
                 motor: "m2306_2450", motors: 1, ratio: 1.2, esc_A: 40 },
     },
     shell: {
@@ -130,7 +130,7 @@
       tire: "urethane", skids: [{ x: 98, y: 60, type: "steel" }, { x: 98, y: -60, type: "steel" }],
       drive: { motor: "rep_compact_1806_mk2_gearmotor", esc_A: 20, brake: true, drive_V: 0 },
       battery: { cells: 4, mAh: 650, R_mohm: 40 },
-      weapon: { type: "vertical", x: 45, y: 0, z: 50, d: 95, mass_g: 260, shape: "disc", thick: 14, teeth: 2, dir: 1,
+      weapon: { type: "vertical", x: 75, y: 0, z: 50, d: 95, mass_g: 260, shape: "disc", thick: 14, teeth: 2, dir: 1,
                 motor: "rep_belt_drive_2812_1800kv", motors: 1, ratio: 1.5, esc_A: 40 },
     },
     hubcutter: {
@@ -158,8 +158,8 @@
       weapon: { type: "none" },
     },
     bigwheel: {
-      name: "Big-wheel", archetype: "Two huge wheels, a horizontal bar on the axle line, legs trailing to the floor",
-      note: "The body hangs on the axle between two big wheels. Two long legs trail back to the floor so drive torque can't swing the body round; the horizontal bar spins between the wheels at axle height. Spin the bar up before driving hard: spin-up torque plus full throttle leaves the tires no grip to hold the heading, the chassis twists round, and the gyro of the big wheels rolls it onto one wheel. Numbers read off photos: replace them with yours.",
+      name: "Big-wheel", archetype: "Two huge wheels, a vertical blade out front between them, legs trailing to the floor",
+      note: "The body hangs on the axle between two big wheels. Two long legs trail back to the floor so drive torque can't swing the body round; the vertical blade sits ahead of the body between the wheels, reaching past them; It spins with the front of the blade moving down, so its spin-up kick presses the legs into the floor. Spun the other way (uppercut), the kick tips the nose down, the blade touches the floor and it faceplants: an uppercutter of this layout needs legs in front too. Its gyro tilts the robot hard in turns, so turn gently with it up to speed. Numbers read off photos: replace them with yours.",
       mass_g: 1360, cog: { x: -10, y: 0, h: 85 }, moi_auto: true,
       body: { pts: [[-45, 115], [-45, -115], [45, -115], [45, 115]], z0: 75, z1: 120 },
       wheels: [Object.assign(w(0, 130, 200, "L"), { w: 10, mass_g: 100 }), Object.assign(w(0, -130, 200, "R"), { w: 10, mass_g: 100 })],
@@ -167,7 +167,7 @@
       tire: "rubber", skids: [{ x: -170, y: 90, type: "uhmw" }, { x: -170, y: -90, type: "uhmw" }],
       drive: { motor: "rep_compact_1806_mk2_gearmotor", esc_A: 20, brake: true, drive_V: 0 },
       battery: { cells: 4, mAh: 650, R_mohm: 40 },
-      weapon: { type: "horizontal", x: 20, y: 0, z: 100, d: 170, mass_g: 250, shape: "bar", thick: 8, teeth: 2, dir: 1,
+      weapon: { type: "vertical", x: 70, y: 0, z: 85, d: 150, mass_g: 220, shape: "bar", thick: 10, teeth: 2, dir: -1,
                 motor: "rep_repeat_2822_mk3_1800kv", motors: 1, ratio: 1.5, esc_A: 40 },
     },
     eggbeater: {
@@ -339,6 +339,8 @@
       out.weapon_I = W.I;
       out.weapon_energy_free = 0.5 * W.I * wtop * wtop;
       out.tip_speed_free = wtop * W.radius;
+      // how far the blade's front reaches past the front of the body and wheels (mm); at or below 0 it can't hit
+      out.weapon_clear_mm = (W.x + W.radius - Math.max(...R.outline.map(p => p[0]))) * 1000;
     }
     return out;
   }

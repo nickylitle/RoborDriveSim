@@ -247,6 +247,7 @@
     $("sum").innerHTML = `weight <b>${S.mass_g} g</b>${over} · on the wheels <b>${(100 * sm.wheel_share).toFixed(1)} %</b> · yaw MOI <b>${(sm.moi * 1e9 / 1e6).toFixed(2)}e6 g mm²</b>${S.moi_auto ? " (estimated)" : ""}<br>` +
       `top speed (no load) <b>${sm.top_speed.toFixed(2)} m/s</b> (${(sm.top_speed * 2.237).toFixed(1)} mph) · pack <b>${(R.battery.V).toFixed(1)} V</b>` +
       (sm.weapon_I ? `<br>weapon MOI <b>${sm.weapon_I.toExponential(2)} kg m²</b> · free speed <b>${sm.weapon_rpm_free.toFixed(0)} rpm</b>${W.rpm_cap ? ` (cap ${W.rpm_cap})` : ""} · <b>${(0.5 * sm.weapon_I * Math.pow(Math.min(sm.weapon_rpm_free, W.rpm_cap || 1e9) * Math.PI / 30, 2)).toFixed(0)} J</b> · tip <b>${(Math.min(sm.weapon_rpm_free, W.rpm_cap || 1e9) * Math.PI / 30 * W.d / 2000).toFixed(0)} m/s</b>` : "") +
+      (sm.weapon_clear_mm !== undefined && sm.weapon_clear_mm < 10 ? `<br><span style="color:var(--${sm.weapon_clear_mm <= 0 ? "red" : "amber"})">the weapon reaches only ${sm.weapon_clear_mm.toFixed(0)} mm past the front of the body and wheels${sm.weapon_clear_mm <= 0 ? ": the chassis hits first, so it can't hit anything" : ""}. Move it forward or make it bigger.</span>` : "") +
       (errorText ? `<br><span style="color:var(--red)">${errorText}</span>` : "");
     drawCurves();
   }
