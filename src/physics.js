@@ -98,12 +98,16 @@
     c.skids = R.skids.map(s => ({ p: rel(s.x, s.y, s.z || 0), muk: s.muk, mus: s.mus }));
     // the body's corners (bottom and top of the outline) and edge midpoints at the bottom
     const pts = [];
-    const ol = R.outline;
+    // the body only: the wheels make their own contacts (a big wheel's square footprint would poke through the floor)
+    const ol = R.bodyOutline || R.outline;
     for (let i = 0; i < ol.length; i++) {
       const a = ol[i], b = ol[(i + 1) % ol.length];
       pts.push(rel(a[0], a[1], R.z0), rel(a[0], a[1], R.z1), rel((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, R.z0), rel((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, R.z1));
     }
     c.hull = pts;
+    // eight points round each wheel's tread, so a wheel can hit the target too
+    c.wrimPts = [];
+    for (const w of c.wheels) for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; c.wrimPts.push(add(w.c, [w.r * Math.cos(a), 0, w.r * Math.sin(a)])); }
     c.poly = ol.map(p => [p[0] - C[0], p[1] - C[1]]); c.zlo = R.z0 - C[2]; c.zhi = R.z1 - C[2];
     const W = R.weapon && R.weapon.type !== "none" ? R.weapon : null;
     c.weapon = W;
@@ -319,7 +323,7 @@
       const k = o.k_hard * 0.5, cdmp = o.c_hard * 0.5, mu = 0.35;
       const push = (fOnRobot, rR, rT) => { apply(fOnRobot, rR); tF.F = sub(tF.F, fOnRobot); tF.M = sub(tF.M, cross(rT, fOnRobot)); };
       // robot points in the box
-      const pts = c.hull.concat(c.wrim || []);
+      const pts = c.hull.concat(c.wrim || [], c.wrimPts);
       const hx = T.a / 2, hy = T.b / 2, hz = T.c / 2;
       for (const r0 of pts) {
         const rR = qrot(q, r0), s = add(p, rR), rT = sub(s, T.p), l = qrot(qconj(T.q), rT);

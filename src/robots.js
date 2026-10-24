@@ -27,19 +27,22 @@
   };
   // drive motors: kv (rpm/V), R (ohm), G (gearbox), eta, Jrot (rotor, kg m^2)
   const DRIVE_MOTORS = {
-    compact1806: { label: "Repeat Compact 1806 2300 KV, 22.6:1 (Flapjack's; R and rotor estimated)", kv: 2300, R: 0.15, G: 22.6, eta: 0.82, Jrot: 8e-7 },
-    bl1806_14:   { label: "1806-class brushless, 14:1 (estimate)", kv: 2300, R: 0.15, G: 14, eta: 0.82, Jrot: 8e-7 },
-    bl2204_27:   { label: "2204-class brushless, 27:1 (estimate)", kv: 1400, R: 0.12, G: 27, eta: 0.80, Jrot: 1.5e-6 },
-    brushed16:   { label: "16 mm brushed gearmotor, 22:1 (estimate)", kv: 1650, R: 2.8, G: 22, eta: 0.70, Jrot: 3e-7 },
+    compact1806: { label: "Flapjack's Repeat Compact 1806 Mk2 · 2300 KV · 22.6:1 (as in REDblocks)", group: "Flapjack", kv: 2300, R: 0.15, G: 22.6, eta: 0.82, Jrot: 8e-7 },
+    bl1806_14:   { label: "1806-class brushless, 14:1 (estimate)", group: "Generic", kv: 2300, R: 0.15, G: 14, eta: 0.82, Jrot: 8e-7 },
+    bl2204_27:   { label: "2204-class brushless, 27:1 (estimate)", group: "Generic", kv: 1400, R: 0.12, G: 27, eta: 0.80, Jrot: 1.5e-6 },
+    brushed16:   { label: "16 mm brushed gearmotor, 22:1 (estimate)", group: "Generic", kv: 1650, R: 2.8, G: 22, eta: 0.70, Jrot: 3e-7 },
   };
   // weapon motors
   const WEAPON_MOTORS = {
-    m2807_1350: { label: "2807 1350 KV (Flapjack's; R estimated)", kv: 1350, R: 0.055 },
-    m2207_1950: { label: "2207 1950 KV (estimate)", kv: 1950, R: 0.065 },
-    m2306_2450: { label: "2306 2450 KV (estimate)", kv: 2450, R: 0.06 },
-    m3536_1000: { label: "3536 1000 KV (estimate)", kv: 1000, R: 0.03 },
+    m2807_1350: { label: "Flapjack's 2807 1350 KV (R estimated)", group: "Flapjack", kv: 1350, R: 0.055 },
+    m2207_1950: { group: "Generic", label: "2207 1950 KV (estimate)", kv: 1950, R: 0.065 },
+    m2306_2450: { group: "Generic", label: "2306 2450 KV (estimate)", kv: 2450, R: 0.06 },
+    m3536_1000: { group: "Generic", label: "3536 1000 KV (estimate)", kv: 1000, R: 0.03 },
     m4250_600:  { label: "4250 600 KV (estimate, heavier bots)", kv: 600, R: 0.02 },
   };
+  // Repeat Robotics and Just 'Cuz Robotics, from their stores (src/motors.js, written by tools/build_motors.py)
+  const CAT = root.RDS && root.RDS.motors ? root.RDS.motors : (typeof require !== "undefined" ? require("./motors.js") : { drive: {}, weapon: {} });
+  Object.assign(DRIVE_MOTORS, CAT.drive); Object.assign(WEAPON_MOTORS, CAT.weapon);
   // weapon shapes: I = k m r^2 about the spin axis (r = half the diameter)
   const SHAPES = {
     bar:   { label: "Bar / blade", k: 1 / 3 },
@@ -118,6 +121,67 @@
       weapon: { type: "horizontal", x: 0, y: 0, z: 32, d: 230, mass_g: 550, shape: "ring", thick: 30, teeth: 2, dir: 1, above: true,
                 motor: "m3536_1000", motors: 1, ratio: 3.0, esc_A: 12 },
     },
+    splitpod: {
+      name: "Split-pod vertical", archetype: "Vertical spinner between two drive pods, hinged front plates",
+      note: "Two pods, one wheel each, with the disc running in the slot between them and a hinged steel plate in front of each pod. Numbers read off a photo: replace them with yours.",
+      mass_g: 1360, cog: { x: 10, y: 0, h: 27 }, moi_auto: true,
+      body: { pts: [[-70, 85], [-70, -85], [70, -85], [100, -60], [100, 60], [70, 85]], z0: 6, z1: 55 },
+      wheels: [w(-20, 62, 50, "L"), w(-20, -62, 50, "R")], linked: false, motors_per_side: 1,
+      tire: "urethane", skids: [{ x: 98, y: 60, type: "steel" }, { x: 98, y: -60, type: "steel" }],
+      drive: { motor: "rep_compact_1806_mk2_gearmotor", esc_A: 20, brake: true, drive_V: 0 },
+      battery: { cells: 4, mAh: 650, R_mohm: 40 },
+      weapon: { type: "vertical", x: 45, y: 0, z: 50, d: 95, mass_g: 260, shape: "disc", thick: 14, teeth: 2, dir: 1,
+                motor: "rep_belt_drive_2812_1800kv", motors: 1, ratio: 1.5, esc_A: 40 },
+    },
+    hubcutter: {
+      name: "Hub undercutter", archetype: "Horizontal hubmotor blade out front, 2WD at the back",
+      note: "The blade sits on a hubmotor ahead of the chassis with a skid under it, so the COG is well forward. Numbers read off a photo: replace them with yours.",
+      mass_g: 1360, cog: { x: 30, y: 0, h: 22 }, moi_auto: true,
+      body: { pts: [[-55, 75], [-55, -75], [75, -75], [75, 75]], z0: 6, z1: 42 },
+      wheels: [w(-30, 82, 45, "L"), w(-30, -82, 45, "R")], linked: false, motors_per_side: 1,
+      tire: "urethane", skids: [{ x: 125, y: 0, type: "steel" }],
+      drive: { motor: "rep_compact_1806_mk2_gearmotor", esc_A: 20, brake: true, drive_V: 0 },
+      battery: { cells: 4, mAh: 650, R_mohm: 40 },
+      weapon: { type: "horizontal", x: 125, y: 0, z: 14, d: 200, mass_g: 300, shape: "bar", thick: 6, teeth: 2, dir: 1,
+                motor: "rep_2812_beetleweight_battle_ready_hubmotor_1300", motors: 1, ratio: 1, esc_A: 50 },
+    },
+    forkwedge: {
+      name: "Fork wedge", archetype: "Wide side forks + centre forks, 2WD (control bot)",
+      note: "Two long side forks and three centre forks drag on the floor ahead of the body. No spinning weapon. Numbers read off a photo: replace them with yours.",
+      mass_g: 1360, cog: { x: 5, y: 0, h: 24 }, moi_auto: true,
+      body: { pts: [[-55, 90], [-55, -90], [60, -90], [60, 90]], z0: 6, z1: 48 },
+      wheels: [w(-10, 60, 50, "L"), w(-10, -60, 50, "R")], linked: false, motors_per_side: 1,
+      tire: "urethane",
+      skids: [{ x: 160, y: 125, type: "steel" }, { x: 160, y: -125, type: "steel" }, { x: 115, y: 18, type: "steel" }, { x: 115, y: -18, type: "steel" }],
+      drive: { motor: "jus_dartbox_v2_drive_viper_4mm", esc_A: 20, brake: true, drive_V: 0 },
+      battery: { cells: 4, mAh: 650, R_mohm: 40 },
+      weapon: { type: "none" },
+    },
+    bigwheel: {
+      name: "Big-wheel", archetype: "Two huge wheels, a horizontal bar on the axle line, legs trailing to the floor",
+      note: "The body hangs on the axle between two big wheels. Two long legs trail back to the floor so drive torque can't swing the body round; the horizontal bar spins between the wheels at axle height. Spin the bar up before driving hard: spin-up torque plus full throttle leaves the tires no grip to hold the heading, the chassis twists round, and the gyro of the big wheels rolls it onto one wheel. Numbers read off photos: replace them with yours.",
+      mass_g: 1360, cog: { x: -10, y: 0, h: 85 }, moi_auto: true,
+      body: { pts: [[-45, 115], [-45, -115], [45, -115], [45, 115]], z0: 75, z1: 120 },
+      wheels: [Object.assign(w(0, 130, 200, "L"), { w: 10, mass_g: 100 }), Object.assign(w(0, -130, 200, "R"), { w: 10, mass_g: 100 })],
+      linked: false, motors_per_side: 1,
+      tire: "rubber", skids: [{ x: -170, y: 90, type: "uhmw" }, { x: -170, y: -90, type: "uhmw" }],
+      drive: { motor: "rep_compact_1806_mk2_gearmotor", esc_A: 20, brake: true, drive_V: 0 },
+      battery: { cells: 4, mAh: 650, R_mohm: 40 },
+      weapon: { type: "horizontal", x: 20, y: 0, z: 100, d: 170, mass_g: 250, shape: "bar", thick: 8, teeth: 2, dir: 1,
+                motor: "rep_repeat_2822_mk3_1800kv", motors: 1, ratio: 1.5, esc_A: 40 },
+    },
+    eggbeater: {
+      name: "Eggbeater", archetype: "Eggbeater (vertical beater between two uprights), 4WD + front forks",
+      note: "The classic beetle eggbeater: a short wide beater on a horizontal axis between two uprights at the front, forks under it, one motor per wheel. It spins about the same axis as a drum, so turning tilts it like a vertical. Numbers read off a photo: replace them with yours.",
+      mass_g: 1360, cog: { x: 10, y: 0, h: 26 }, moi_auto: true,
+      body: { pts: [[-70, 70], [-70, -70], [60, -70], [60, 70]], z0: 6, z1: 50 },
+      wheels: [w(35, 72, 45, "L"), w(-45, 72, 45, "L"), w(35, -72, 45, "R"), w(-45, -72, 45, "R")], linked: false, motors_per_side: 1,
+      tire: "urethane", skids: [{ x: 120, y: 45, type: "steel" }, { x: 120, y: -45, type: "steel" }],
+      drive: { motor: "rep_mini_brushless_1106_mk4_1_28_5_1_3mm", esc_A: 12, brake: true, drive_V: 0 },
+      battery: { cells: 4, mAh: 650, R_mohm: 40 },
+      weapon: { type: "drum", x: 88, y: 0, z: 42, d: 75, mass_g: 280, shape: "ring", thick: 55, teeth: 2, dir: 1,
+                motor: "rep_belt_drive_2812_1800kv", motors: 1, ratio: 1.5, esc_A: 40 },
+    },
     pusher4wd: {
       name: "4WD pusher", archetype: "4WD wedge / pusher (control bot)",
       note: "Four wheels, each side chained together on one motor per side. No spinning weapon.",
@@ -183,6 +247,11 @@
     return [S.moi_roll || est[0] * yaw / est[2], S.moi_pitch || est[1] * yaw / est[2], yaw];
   }
 
+  // a tangent drive presses the motor's shaft on the wheel: the ratio is wheel diameter / roller diameter
+  function tangentRatio(S, dm) {
+    const ds = S.wheels.filter(w => w.driven).map(w => w.d);
+    return (ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : 40) / (S.drive.roller_d || dm.tangent_d);
+  }
   function build(S) {
     const mm = v => v / 1000;
     const dm = DRIVE_MOTORS[S.drive.motor] || DRIVE_MOTORS.compact1806;
@@ -201,11 +270,12 @@
       linked: !!S.linked, motorsPerSide: S.motors_per_side || 1,
       skids: (S.skids || []).map(q => { const k = Object.assign({}, SKIDS[q.type] || SKIDS.steel, q.adv || {}); return { x: mm(q.x), y: mm(q.y), z: mm(q.gap || 0), muk: k.muk, mus: k.mus }; }),
       tire: { muk: tire.muk, mus: tire.mus, sigp: tire.sigp, vmin: 0.05, crr: tire.crr },
-      drive: { kv: da.kv || dm.kv, R: da.R || dm.R, G: da.G || dm.G, eta: da.eta || dm.eta, etab: da.eta || dm.eta,
+      drive: { kv: da.kv || dm.kv, R: da.R || dm.R, G: da.G || (dm.tangent_d ? tangentRatio(S, dm) : dm.G), eta: da.eta || dm.eta, etab: da.eta || dm.eta,
                Jrot: da.Jrot || dm.Jrot, Imax: S.drive.esc_A, brake: S.drive.brake, vmax: S.drive.drive_V || 0 },
       battery: { V, R: (S.battery.R_mohm || 40) / 1000, mAh: S.battery.mAh },
       outline: S.body.pts.map(p => [mm(p[0]), mm(p[1])]),
     };
+    R.bodyOutline = hull(R.outline.map(p => p.slice()));
     // the robot's outline also takes in its wheels (they hit walls too)
     for (const q of S.wheels) {
       const r = q.d / 2, side = Math.sign(q.y) || 1, wd = q.w || 16;
@@ -274,7 +344,7 @@
   }
 
   const global = typeof window !== "undefined" ? window : globalThis;
-  const api = { TIRES, SKIDS, DRIVE_MOTORS, WEAPON_MOTORS, SHAPES, ARENAS, PRESETS, build, summary, estimateMoi, estimateMoi3, moi3, weaponI, hull };
+  const api = { TIRES, SKIDS, DRIVE_MOTORS, WEAPON_MOTORS, SHAPES, ARENAS, PRESETS, tangentRatio, build, summary, estimateMoi, estimateMoi3, moi3, weaponI, hull };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else { root.RDS = root.RDS || {}; root.RDS.robots = api; }
 })(typeof window !== "undefined" ? window : globalThis);

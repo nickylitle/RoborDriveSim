@@ -28,7 +28,14 @@ Press **Setup** and answer the questions. Start from an archetype and change wha
 | Vertical spinner | 2WD, front forks, vertical disc |
 | Drum spinner | 2WD, front wedgelets, drum |
 | Shell spinner | 2WD in the middle, ball casters set a hair high, spinning ring |
+| Split-pod vertical | two drive pods, the disc in the slot between them, hinged front plates |
+| Hub undercutter | horizontal blade on a hubmotor out front, 2WD at the back |
+| Fork wedge | long side forks and centre forks on the floor, 2WD, no weapon |
+| Big-wheel | two huge wheels, the body hung on the axle, legs trailing to the floor, a horizontal bar between the wheels |
+| Eggbeater | short wide beater between two uprights, forks under it, 4WD |
 | 4WD pusher | four wheels chained per side, no weapon |
+
+The five after Shell spinner were set up from photos: their sizes and masses are estimates.
 
 What it asks:
 
@@ -47,6 +54,24 @@ What it asks:
 Measure every position in mm from one point on your robot (the drive axle centre is handy), with x forward and y left.
 Heights are above the floor. Tick **advanced** for motor constants, tire curve, pack resistance and weapon inertia.
 **Save** keeps a robot in your browser; **Export** and **Import** move it around as a `.robot.json` file.
+
+## Motors
+
+The drive and weapon motor menus hold every motor Repeat Robotics and Just 'Cuz Robotics sell (45 drive, 34 weapon
+counting the generic ones), grouped by maker. Each one shows what it is based on and links to its product page.
+`tools/build_motors.py` turns `tools/motor_catalog.json` (the store listings) into `src/motors.js`.
+
+| Value | Where it comes from |
+|---|---|
+| KV, gear ratio, mass | the store listing |
+| Brushed motors' KV and resistance | worked out from the published 12 V free speed and stall current; efficiency from the stall torque |
+| Brushless resistance | published where the store gives it (Just 'Cuz RDY hubmotors, Blitz); otherwise estimated from the stator size, about ±2x, marked "R est." |
+| Gearbox efficiency | 0.82 up to 30:1, 0.75 up to 60:1, 0.65 above |
+| Tangent drives | the ratio is wheel diameter / roller diameter (you can set the roller) |
+
+Repeat publishes no resistance or current figures, so every Repeat brushless motor's resistance is an estimate.
+`node tests/test_motors.js` checks that every motor builds and drives, and that each brushed motor gives back its
+published free speed.
 
 ## Drive
 
@@ -101,13 +126,16 @@ of Flapjack was (5S, no weapon), it gives the same answers:
 | drag-brake stop from top speed | 0.83 s, 1.80 m | 0.82 s, 1.80 m |
 | weapon spin-up yaw, brake on | 21 deg | 17 deg |
 
-Run the checks with `node tests/test3d.js` (3D) and `node tests/run_tests.js` (the flat model it started from, plus
+Run the checks with `node tests/test3d.js` (3D), `node tests/test_motors.js` (the motor catalog) and `node tests/run_tests.js` (the flat model it started from, plus
 the driving curves). No packages are needed. `reference/flapjack_drive_legacy.py` is the original.
 
 One thing it found: drive Flapjack hard while its weapon spins up, and the tires have no grip left to resist the
 spin-up torque, so the chassis twists round. At about 2000 deg/s the drive motors' rotors act as gyros, and that is
 enough to lift a wheel on its narrow wheel-to-skid tipping line. This depends on the weapon ESC limit and the rotor
 inertia, both estimates.
+
+The big-wheel archetype shows the same thing harder. Spin its bar up while driving flat out and the chassis twists
+round; its big wheels are gyros, so the yaw rolls it onto one wheel. Spin up first, then drive, and it is fine.
 
 ## Limits
 

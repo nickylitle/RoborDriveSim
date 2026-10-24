@@ -72,13 +72,25 @@
   }
   function fSel(label, path, opts, o = {}) {
     const v = String(get(S, path));
-    return `<div class="f${o.adv ? " adv" : ""}"><label>${label}</label><select data-p="${path}" data-t="${o.type || "str"}">${opts.map(([k, l]) => `<option value="${k}"${String(k) === v ? " selected" : ""}>${l}</option>`).join("")}</select>${o.hint ? `<div class="hint">${o.hint}</div>` : ""}</div>`;
+    const opt = ([k, l]) => `<option value="${k}"${String(k) === v ? " selected" : ""}>${l}</option>`;
+    let body;
+    if (opts.some(q => q[2])) {                          // grouped by maker
+      const groups = [...new Set(opts.map(q => q[2] || "Other"))];
+      body = groups.map(gname => `<optgroup label="${gname}">${opts.filter(q => (q[2] || "Other") === gname).map(opt).join("")}</optgroup>`).join("");
+    } else body = opts.map(opt).join("");
+    return `<div class="f${o.adv ? " adv" : ""}"><label>${label}</label><select data-p="${path}" data-t="${o.type || "str"}"${o.wide ? ' style="flex:1 1 100%"' : ""}>${body}</select>${o.hint ? `<div class="hint">${o.hint}</div>` : ""}</div>`;
   }
   function fChk(label, path, o = {}) {
     return `<div class="f${o.adv ? " adv" : ""}"><label>${label}</label><input type="checkbox" data-p="${path}"${get(S, path) ? " checked" : ""}>${o.hint ? `<div class="hint">${o.hint}</div>` : ""}</div>`;
   }
-  const opts = o => Object.entries(o).map(([k, v]) => [k, v.label]);
+  const opts = o => Object.entries(o).map(([k, v]) => [k, v.label, v.group]);
 
+  function motorHint(M) {
+    const bits = [`${M.kv} KV`, `R ${M.R} Ω`];
+    if (M.G) bits.push(`${(+M.G).toFixed(M.G % 1 ? 1 : 0)}:1, efficiency ${M.eta}`);
+    if (M.mass_g) bits.push(`${M.mass_g} g`);
+    return bits.join(" · ") + (M.src ? `<br>${M.src}` : "") + (M.url ? ` · <a href="${M.url}" target="_blank" rel="noopener" style="color:var(--blue)">product page</a>` : "");
+  }
   function wheelRows() {
     return `<table class="t"><tr><th>#</th><th>x mm</th><th>y mm</th><th>diameter</th><th>width</th><th>side</th><th>driven</th></tr>` +
       S.wheels.map((q, i) => `<tr><td>${i + 1}</td>
@@ -133,7 +145,8 @@
         ${skidRows()}
       </div></details>
       <details><summary>Drive motors and battery <span class="q">what drives it</span></summary><div class="sec">
-        ${fSel("Drive motor", "drive.motor", opts(RB.DRIVE_MOTORS))}
+        ${fSel("Drive motor", "drive.motor", opts(RB.DRIVE_MOTORS), { wide: true, hint: motorHint(DM) })}
+        ${DM.tangent_d ? fNum("Roller (motor shaft) diameter", "drive.roller_d", "mm", { ph: DM.tangent_d, hint: `tangent drive: ratio = wheel / roller = ${RB.tangentRatio(S, DM).toFixed(2)}:1` }) : ""}
         ${fNum("ESC current limit", "drive.esc_A", "A")}
         ${fChk("Drag brake (stops when you let go)", "drive.brake")}
         ${fNum("Drive voltage cap", "drive.drive_V", "V", { hint: "0 = the full pack; a value runs the drive slower than the pack (an ESC endpoint, e.g. 5S drive on a 6S pack)" })}
@@ -155,7 +168,7 @@
         ${W.type === "horizontal" ? fChk("Weapon sits above the body (shell, ring, top spinner)", "weapon.above", { hint: "off for an undercutter: drawn under the chassis" }) : ""}
         ${fNum("Teeth (impacts per turn)", "weapon.teeth", "", { step: 1, min: 1 })}
         ${fSel("Spin direction", "weapon.dir", dirOpts(W.type), { type: "num" })}
-        ${fSel("Weapon motor", "weapon.motor", opts(RB.WEAPON_MOTORS))}
+        ${fSel("Weapon motor", "weapon.motor", opts(RB.WEAPON_MOTORS), { wide: true, hint: motorHint(WM) })}
         ${fNum("Number of weapon motors", "weapon.motors", "", { step: 1, min: 1 })}
         ${fNum("Reduction (motor turns per weapon turn)", "weapon.ratio", ":1", { hint: "belt or friction drive; 1 = direct" })}
         ${fNum("Weapon ESC current limit", "weapon.esc_A", "A")}
@@ -202,7 +215,7 @@
         if (/^(tire_adv|drive\.adv|weapon\.adv)\./.test(p) || p === "weapon.I_override" || p === "battery.cellV") { if (v === undefined) { put(S, p, undefined); changed(); return; } }
         if (p === "weapon.type" && v !== "none" && (!S.weapon || !S.weapon.d)) S.weapon = clone(RB.PRESETS.undercutter.weapon);
         put(S, p, v);
-        const structural = /^(weapon\.type|weapon\.motor|weapon\.shape|moi_auto|moi_gmm2|linked|controls\.mix|tire|drive\.motor)$/.test(p);
+        const structural = /^(weapon\.type|weapon\.motor|weapon\.shape|moi_auto|moi_gmm2|linked|controls\.mix|tire|drive\.motor|wheels\.\d+\.d)$/.test(p);
         changed(); if (structural) renderSetup();
       });
     });
