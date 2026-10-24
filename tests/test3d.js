@@ -82,5 +82,14 @@ const run = (s, T, cmd, each) => { while (s.t - s.t0 < T) { s.step(cmd(s.t - s.t
     check(isFinite(st.x) && !st.upsideDown && tilt * 57.3 < 45, `preset ${k}: spun up, then an arc`, `speed ${st.speed.toFixed(2)} m/s, weapon ${(st.ww * 30 / Math.PI).toFixed(0)} rpm, most tilt ${(tilt * 57.3).toFixed(1)} deg`);
   }
 }
+// driven into a wall, every upright bot backs away again (wheels near a wall once grounded on hard rim points)
+for (const k of ["flapjack", "vertical", "drum", "pusher4wd", "eggbeater"]) {
+  const H = 2.4384 / 2, R = B.build(clone(B.PRESETS[k])), s = new P.Sim(R, { arena: 2.4384, ceiling: 1.22 });
+  s.reset({ x: H - 0.4, y: 0, psi: 0 });
+  for (let i = 0; i < 15000; i++) s.step({ L: 1, R: 1, W: 0 });
+  const x0 = s.state.x, Nw = s.state.wheels.reduce((a, w) => a + w.N, 0);
+  for (let i = 0; i < 5000; i++) s.step({ L: -1, R: -1, W: 0 });
+  check(x0 - s.state.x > 0.15, `${k}: pinned on a wall, then backs off it`, `wheels carry ${Nw.toFixed(1)} N on the wall, backed ${((x0 - s.state.x) * 1000).toFixed(0)} mm in 0.5 s`);
+}
 console.log(`\n${n - fails} of ${n} passed`);
 process.exit(fails ? 1 : 0);

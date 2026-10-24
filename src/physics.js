@@ -248,7 +248,7 @@
         skidN.push(N);
       }
       let bodyHit = 0;
-      const hard = (b, mu) => {                          // a point of the robot against floor, walls, ceiling
+      const hard = (b, mu, wallOnly) => {                // a point of the robot against floor, walls, ceiling
         const rz = r20 * b[0] + r21 * b[1] + r22 * b[2], sz = p[2] + rz;
         const ceil = o.ceiling > 0 && sz > o.ceiling;
         if (sz > 0 && !near && !ceil) return;
@@ -256,7 +256,7 @@
         const sx = p[0] + rx, sy = p[1] + ry;
         if (sz > 0 && !ceil && Math.abs(sx) < H && Math.abs(sy) < H) return;     // near a wall, but not this point
         const vx = v[0] + ww[1] * rz - ww[2] * ry, vy = v[1] + ww[2] * rx - ww[0] * rz, vz = v[2] + ww[0] * ry - ww[1] * rx;
-        if (sz < 0 && lowEnough) {
+        if (sz < 0 && lowEnough && !wallOnly) {
           const N = o.k_hard * -sz - o.c_hard * vz;
           if (N > 0) { const den = Math.sqrt(vx * vx + vy * vy + 2.5e-5), k = -mu * N / den; applyS(k * vx, k * vy, N, rx, ry, rz); bodyHit++; }
         }
@@ -296,7 +296,7 @@
       }
       for (const wh of c.wheels) {                       // wheels against walls (their outer rim, four points)
         if (!near) break;
-        for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) hard(add(wh.c, [a * wh.r, 0, b * wh.r]), 0.6);
+        for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) hard(add(wh.c, [a * wh.r, 0, b * wh.r]), 0.6, true);   // walls only: the tire is the wheel's floor contact
       }
       // ---- the target box
       let tgF = null;
