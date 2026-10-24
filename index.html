@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RoborDriveSim</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+@font-face{font-family:"IBM Plex Sans";src:url("fonts/ibm-plex-sans-latin-400-normal.woff2");font-weight:400}
+@font-face{font-family:"IBM Plex Sans";src:url("fonts/ibm-plex-sans-latin-600-normal.woff2");font-weight:600 700}
+@font-face{font-family:"IBM Plex Mono";src:url("fonts/ibm-plex-mono-latin-400-normal.woff2");font-weight:400}
+@font-face{font-family:"IBM Plex Mono";src:url("fonts/ibm-plex-mono-latin-700-normal.woff2");font-weight:600 700}
+:root{--bg:#090c12;--panel:#10151e;--panel2:#161d29;--panel3:#1d2634;--edge:#273244;--ink:#e8edf4;--ink2:#9aa6b8;--ink3:#5d6878;
+  --red:#e5383b;--redd:#7a1517;--amber:#f2a541;--teal:#2dd4bf;--blue:#4ea8de;--mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  --sans:"IBM Plex Sans",system-ui,"Segoe UI",sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:13px/1.45 var(--sans);overflow:hidden}
+button,select,input{font:inherit;color:var(--ink)}
+button{background:var(--panel3);border:1px solid var(--edge);border-radius:6px;padding:5px 11px;cursor:pointer}
+button:hover{border-color:var(--ink3)} button.on{background:var(--redd);border-color:var(--red)}
+button.prim{background:var(--red);border-color:var(--red);color:#fff;font-weight:600}
+select,input[type=text],input[type=number]{background:var(--panel2);border:1px solid var(--edge);border-radius:5px;padding:3px 6px}
+input[type=number]{width:74px;font-family:var(--mono);text-align:right}
+input[type=checkbox]{accent-color:var(--red)}
+#top{position:fixed;left:0;right:0;top:0;height:46px;display:flex;align-items:center;gap:8px;padding:0 12px;background:var(--panel);border-bottom:1px solid var(--edge);z-index:5}
+#top .brand{font-weight:700;letter-spacing:.06em;color:var(--red);margin-right:6px}
+#top .brand span{color:var(--ink)}
+#top .sp{flex:1}
+#top .pad{font:11px var(--mono);color:var(--ink3)}
+#stage{position:fixed;left:0;right:0;top:46px;bottom:0}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block}
+.hud{position:absolute;background:color-mix(in srgb,var(--panel) 88%,transparent);border:1px solid var(--edge);border-radius:8px;padding:8px 10px;font:12px var(--mono);pointer-events:none}
+#hud{left:12px;top:12px;min-width:250px}
+#hud .row{display:flex;justify-content:space-between;gap:16px}
+#hud .k{color:var(--ink3)} #hud .big{font-size:22px;font-weight:700;color:var(--ink)}
+#hud .t{font-size:18px;color:var(--amber);font-weight:700}
+#hud hr{border:0;border-top:1px solid var(--edge);margin:6px 0}
+#bars{right:12px;top:12px;display:flex;gap:10px;align-items:flex-end}
+.bar{width:16px;height:110px;background:var(--panel3);border-radius:3px;position:relative;overflow:hidden}
+.bar i{position:absolute;left:0;right:0;background:var(--blue)}
+.bar.w i{background:var(--red);bottom:0}
+.barl{font:10px var(--mono);color:var(--ink3);text-align:center;margin-top:3px}
+#chart{left:12px;right:12px;bottom:12px;height:120px;padding:0}
+#chart canvas{width:100%;height:100%;display:block}
+#keys{right:12px;bottom:146px;color:var(--ink2);font-size:11px;line-height:1.6}
+#keys b{color:var(--ink);display:inline-block;min-width:64px}
+#msg{left:50%;top:40%;transform:translate(-50%,-50%);font:600 16px var(--sans);padding:14px 20px;text-align:center}
+#msg small{display:block;font:12px var(--sans);color:var(--ink2);margin-top:6px}
+/* setup drawer */
+#setup{position:fixed;top:46px;right:0;bottom:0;width:min(560px,100vw);background:var(--panel);border-left:1px solid var(--edge);z-index:6;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .18s}
+#setup.open{transform:none}
+#setup header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--edge)}
+#setup header h2{margin:0;font-size:15px;flex:1}
+#sbody{overflow:auto;padding:4px 14px 30px}
+#view{width:100%;height:300px;border:1px solid var(--edge);border-radius:8px;display:block;margin:10px 0 4px;background:#0d1118}
+details{border:1px solid var(--edge);border-radius:8px;margin:10px 0;background:var(--panel2)}
+summary{cursor:pointer;padding:8px 12px;font-weight:600;list-style:none;display:flex;gap:8px;align-items:center}
+summary::before{content:"▸";color:var(--ink3)} details[open] summary::before{content:"▾"}
+summary .q{font-weight:400;color:var(--ink3);font-size:12px}
+.sec{padding:2px 12px 12px}
+.f{display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap}
+.f>label{flex:1 1 210px;color:var(--ink2)} .f .u{color:var(--ink3);font:11px var(--mono);min-width:44px}
+.f .hint{flex-basis:100%;color:var(--ink3);font-size:11px;margin-top:-3px}
+.adv{display:none} body.advanced .adv{display:flex}
+table.t{border-collapse:collapse;width:100%;margin:6px 0;font-size:12px}
+table.t th{color:var(--ink3);font-weight:400;text-align:left;padding:2px 4px}
+table.t td{padding:2px 4px} table.t input[type=number]{width:62px}
+.out{font:12px var(--mono);color:var(--ink2);background:var(--panel3);border-radius:6px;padding:8px 10px;margin:8px 0;line-height:1.6}
+.out b{color:var(--ink)}
+.note{color:var(--ink3);font-size:12px;margin:6px 0}
+textarea{width:100%;background:var(--panel3);border:1px solid var(--edge);border-radius:5px;color:var(--ink);font:12px var(--mono);padding:6px}
+#curves{width:100%;height:150px;background:#0d1118;border:1px solid var(--edge);border-radius:6px;display:block}
+#help{position:fixed;inset:46px 0 0 0;background:rgba(5,7,10,.82);z-index:7;display:none;align-items:center;justify-content:center}
+#help.open{display:flex}
+#help .box{max-width:760px;max-height:85vh;overflow:auto;background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:18px 22px}
+#help h3{margin:14px 0 4px;color:var(--amber);font-size:13px} #help p,#help li{color:var(--ink2)}
+kbd{font:11px var(--mono);background:var(--panel3);border:1px solid var(--edge);border-bottom-width:2px;border-radius:4px;padding:0 5px;color:var(--ink)}
+@media (max-width:760px){#keys{display:none}#hud{min-width:0}}
+</style>
+</head>
+<body>
+<div id="top">
+  <div class="brand">ROBOR<span>DRIVESIM</span></div>
+  <select id="robotSel" title="Your robots and the archetype presets"></select>
+  <button id="bSetup" class="prim" title="Set up the robot: weight, COG, wheels, weapon, controls">Setup</button>
+  <button id="bReset" title="Back to the start (R)">Reset</button>
+  <button id="bPause" title="Pause (P)">Pause</button>
+  <button id="bTarget" title="A box to push and hit (T)">Target</button>
+  <button id="bFollow" title="Camera follows the robot (C)">Follow</button>
+  <select id="speedSel" title="Time scale ([ and ])"><option value="1">1x</option><option value="0.5">0.5x</option><option value="0.25">0.25x</option><option value="0.1">0.1x</option></select>
+  <div class="sp"></div>
+  <span class="pad" id="padInfo">no controller</span>
+  <button id="bCsv" title="Save the last minute of driving as a CSV">CSV</button>
+  <button id="bHelp" title="Keys and how it works (H)">?</button>
+</div>
+<div id="stage">
+  <canvas id="cv"></canvas>
+  <div id="hud" class="hud"></div>
+  <div id="bars" class="hud"></div>
+  <div id="keys" class="hud"></div>
+  <div id="chart" class="hud"><canvas id="chartCv"></canvas></div>
+  <div id="msg" class="hud" hidden></div>
+</div>
+<div id="setup">
+  <header><h2>Robot setup</h2>
+    <label style="color:var(--ink2);font-size:12px"><input type="checkbox" id="advChk"> advanced</label>
+    <button id="bSave" title="Save this robot in this browser">Save</button>
+    <button id="bExport" title="Download this robot as a file">Export</button>
+    <button id="bImport" title="Open a robot file">Import</button><input type="file" id="fileIn" accept=".json" hidden>
+    <button id="bClose" title="Close (Esc)">✕</button></header>
+  <div id="sbody"></div>
+</div>
+<div id="help"><div class="box" id="helpBox"></div></div>
+<script src="src/physics.js"></script>
+<script src="src/robots.js"></script>
+<script src="src/input.js"></script>
+<script src="src/render.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>
