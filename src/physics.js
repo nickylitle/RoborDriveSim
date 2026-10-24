@@ -277,9 +277,12 @@
       if (W) {
         const sw = qrot(q, c.waxis), cwW = qrot(q, c.wc);
         const rim = (r, s0, pen, n) => {
-          let vs = velAt(r); vs = add(vs, cross(mul(sw, this.ww), sub(r, cwW)));
-          const vn = dot(vs, n); let N = o.k_hard * pen - o.c_hard * vn; if (N <= 0) return;
-          const vt = sub(vs, mul(n, vn)), vm = norm(vt), f = add(mul(n, N), vm > 1e-9 ? mul(vt, -0.3 * N / Math.sqrt(vm * vm + 2.5e-5)) : v3());
+          // the rim is a circle spinning in place: the spin slides its material along the surface it touches (friction)
+          // but does not move the circle toward it, so the push-back's damping uses the chassis' motion only. With the
+          // spin in the damping, a tilted blade's rim points read 15-40 m/s "into" the floor and kicked the robot up.
+          const vc = velAt(r), vs = add(vc, cross(mul(sw, this.ww), sub(r, cwW)));
+          let N = o.k_hard * pen - o.c_hard * dot(vc, n); if (N <= 0) return;
+          const vt = sub(vs, mul(n, dot(vs, n))), vm = norm(vt), f = add(mul(n, N), vm > 1e-9 ? mul(vt, -0.3 * N / Math.sqrt(vm * vm + 2.5e-5)) : v3());
           apply(f, r); wtau += dot(cross(sub(r, cwW), f), sw); bodyHit++;
         };
         for (const r0 of c.wrim) {
@@ -323,14 +326,22 @@
       const k = o.k_hard * 0.5, cdmp = o.c_hard * 0.5, mu = 0.35;
       const push = (fOnRobot, rR, rT) => { apply(fOnRobot, rR); tF.F = sub(tF.F, fOnRobot); tF.M = sub(tF.M, cross(rT, fOnRobot)); };
       // robot points in the box
-      const pts = c.hull.concat(c.wrim || [], c.wrimPts);
+      const pts = c.hull.concat(c.wrim || [], c.wrimPts), nHull = c.hull.length, nRim = (c.wrim || []).length;
       const hx = T.a / 2, hy = T.b / 2, hz = T.c / 2;
-      for (const r0 of pts) {
+      const axW = c.weapon ? qrot(qconj(T.q), qrot(q, c.waxis)) : null;   // the spin axis in the box's frame
+      for (let ip = 0; ip < pts.length; ip++) {
+        const r0 = pts[ip];
         const rR = qrot(q, r0), s = add(p, rR), rT = sub(s, T.p), l = qrot(qconj(T.q), rT);
         const dx = hx - Math.abs(l[0]), dy = hy - Math.abs(l[1]), dz = hz - Math.abs(l[2]);
         if (dx <= 0 || dy <= 0 || dz <= 0) continue;
-        let nl, d;
-        if (dx <= dy && dx <= dz) { nl = [Math.sign(l[0]), 0, 0]; d = dx; } else if (dy <= dz) { nl = [0, Math.sign(l[1]), 0]; d = dy; } else { nl = [0, 0, Math.sign(l[2])]; d = dz; }
+        // out through the nearest face. A blade's rim can only push out sideways in its own plane: a low blade
+        // that has bitten into a box's side is nearest the bottom face, and pushing it out through the bottom
+        // drove it into the floor, threw the box up, and the floor's spring-back launched the robot
+        const ds = [dx, dy, dz];
+        if (axW && ip >= nHull && ip < nHull + nRim) for (let j = 0; j < 3; j++) if (Math.abs(axW[j]) > 0.7) ds[j] = Infinity;
+        let j = ds[0] <= ds[1] && ds[0] <= ds[2] ? 0 : (ds[1] <= ds[2] ? 1 : 2);
+        if (!isFinite(ds[j])) j = dx <= dy && dx <= dz ? 0 : (dy <= dz ? 1 : 2);
+        const nl = [0, 0, 0]; nl[j] = Math.sign(l[j]) || 1; const d = [dx, dy, dz][j];
         const n = qrot(T.q, nl), rv = sub(velAt(rR), tvel(rT)), vn = dot(rv, n);
         let N = k * d - cdmp * vn; if (N <= 0) continue;
         const vt = sub(rv, mul(n, vn)), vm = norm(vt);
@@ -426,7 +437,13 @@
       // effective masses along the tooth: the target, the blade (I / r^2), the robot behind the bearing
       const invI = (Ib, Iq, r) => { const rb = qrot(qconj(Iq), cross(r, tdir)); return rb[0] * rb[0] / Ib[0] + rb[1] * rb[1] / Ib[1] + rb[2] * rb[2] / Ib[2]; };
       const kT = 1 / T.m + invI(T.I, T.q, rT), kB = rr * rr / W.I, kR = 1 / R.m + invI(c.I, q, sub(cw, this.p));
-      const J = (1 + W.bite_e) * vrel / (kT + kB + kR);
+      let J = (1 + W.bite_e) * vrel / (kT + kB + kR);
+      // a rigid point impulse stops the blade dead on a solid hit (its tip is far lighter than the target), but real
+      // armour crushes and the tooth bites only a few mm, so a blade keeps part of its speed: cap the energy one hit
+      // can take (hit_take, a fraction; tune it from slow-motion video of the blade's speed before and after a hit)
+      const take = W.hit_take !== undefined ? W.hit_take : 0.5;
+      const Jmax = W.I * this.ww * (1 - Math.sqrt(Math.max(0, 1 - take))) / rr;
+      if (J > Jmax) J = Jmax;
       const Jv = mul(tdir, J);
       // the target
       T.v = add(T.v, mul(Jv, 1 / T.m));
@@ -436,10 +453,65 @@
       this.ww = Math.max(0, this.ww - J * rr / W.I);
       this.v = sub(this.v, mul(Jv, 1 / R.m));
       const rc = sub(cw, this.p), mb = qrot(qconj(q), cross(rc, Jv)); this.w = [this.w[0] - mb[0] / c.I[0], this.w[1] - mb[1] / c.I[1], this.w[2] - mb[2] / c.I[2]];
+      // the floor pushes back during the hit, not after it: without this the impulse rolled the robot (and the
+      // box) straight into its soft tire springs, which threw it into the air on the rebound
+      this.floorReact(this.v, this.w, q, R.m, c.I, this.groundPoints());
+      this.floorReact(T.v, T.w, T.q, T.m, T.I, this.boxGroundPoints());
       this.lastBite = this.wangle;
       const dE = E0 - 0.5 * W.I * this.ww * this.ww;
       this.hits.push({ t: this.t, J, dE, x: qp[0], y: qp[1], z: qp[2], vtip: this.ww * rr });
       if (this.hits.length > 50) this.hits.shift();
+    }
+
+    // the robot's points on (or within 2 mm of) the floor: {r: offset from the COG, mu, ax: a wheel's axle (it rolls
+    // freely the other way)}
+    groundPoints() {
+      const c = this.c, R = this.R, q = this.q, p = this.p, out = [], axle = qrot(q, [0, 1, 0]);
+      const near = (r, mu, ax) => { if (p[2] + r[2] < 0.002) out.push({ r, mu, ax }); };
+      let d = [axle[0] * axle[2], axle[1] * axle[2], -1 + axle[2] * axle[2]]; const dn = norm(d);
+      if (dn > 0.05) { d = mul(d, 1 / dn); for (const wh of c.wheels) near(add(qrot(q, wh.c), mul(d, wh.r)), R.tire.mus, axle); }
+      for (const sk of c.skids) near(qrot(q, sk.p), sk.mus, null);
+      for (const r0 of c.hull) near(qrot(q, r0), this.opts.mu_body, null);
+      return out;
+    }
+    boxGroundPoints() {
+      const T = this.tg, out = [];
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+        const r = qrot(T.q, [sx * T.a / 2, sy * T.b / 2, sz * T.c / 2]); if (T.p[2] + r[2] < 0.002) out.push({ r, mu: T.mu, ax: null });
+      }
+      return out;
+    }
+    // the floor during a hit: inelastic normal impulses where the hit would drive a point into the floor, and friction
+    // impulses (at most mu times the normal one) against the sliding the hit gives each point (sequential impulses).
+    // v is the world velocity, w the body-frame angular velocity, I the body-frame principal inertias; both change.
+    floorReact(v, w, q, m, I, pts) {
+      if (!pts.length) return;
+      const n = pts.length, Pn = new Float64Array(n), Pt = pts.map(() => [0, 0]);
+      const vel = r => { const W = qrot(q, w); return add(v, cross(W, r)); };
+      const push = (r, dir, P) => {                       // impulse P along world dir at offset r
+        for (let k = 0; k < 3; k++) v[k] += dir[k] * P / m;
+        const b = qrot(qconj(q), cross(r, dir)); for (let k = 0; k < 3; k++) w[k] += b[k] * P / I[k];
+      };
+      const kOf = (r, dir) => { const b = qrot(qconj(q), cross(r, dir)); return 1 / m + b[0] * b[0] / I[0] + b[1] * b[1] / I[1] + b[2] * b[2] / I[2]; };
+      const ez = [0, 0, 1];
+      const tdirs = pts.map(pt => pt.ax ? [[pt.ax[0], pt.ax[1], 0]] : [[1, 0, 0], [0, 1, 0]]);
+      for (let it = 0; it < 40; it++) {
+        let worst = 0;
+        for (let i = 0; i < n; i++) {
+          const pt = pts[i];
+          // normal: the floor only pushes
+          let vz = vel(pt.r)[2], dP = -vz / kOf(pt.r, ez); if (Pn[i] + dP < 0) dP = -Pn[i];
+          if (dP) { Pn[i] += dP; push(pt.r, ez, dP); worst = Math.max(worst, Math.abs(vz)); }
+          // friction, bounded by mu times this point's normal impulse
+          for (let a = 0; a < tdirs[i].length; a++) {
+            let t = tdirs[i][a]; const tn = Math.hypot(t[0], t[1]); if (tn < 1e-6) continue; t = [t[0] / tn, t[1] / tn, 0];
+            const vt = dot(vel(pt.r), t), lim = pt.mu * Pn[i];
+            let target = Pt[i][a] - vt / kOf(pt.r, t); target = Math.max(-lim, Math.min(lim, target));
+            const d = target - Pt[i][a]; if (d) { Pt[i][a] = target; push(pt.r, t, d); }
+          }
+        }
+        if (worst < 1e-4) break;
+      }
     }
 
     get state() {

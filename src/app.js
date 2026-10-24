@@ -176,6 +176,7 @@
         ${fNum("Weapon MOI (overrides the shape)", "weapon.I_override", "kg m²", { adv: true, hint: "blank = from the shape, mass and diameter", ph: hasW ? RB.weaponI(Object.assign({}, W, { I_override: 0 })) : 0 })}
         ${fNum("Weapon motor kv", "weapon.adv.kv", "rpm/V", { adv: true, ph: WM.kv })}${fNum("Weapon motor resistance", "weapon.adv.R", "Ω", { adv: true, ph: WM.R })}
         ${fNum("Hit restitution", "weapon.adv.bite_e", "", { adv: true, hint: "0 to 1: how much a tooth bounces off rather than bites", ph: 0.3 })}
+        ${fNum("Most of the blade's energy one hit can take", "weapon.adv.hit_take", "%", { adv: true, ph: 50, hint: "a rigid hit would stop the blade dead; real armour crushes, so blades keep speed. Tune from slow-motion video: blade rpm before and after a hit" })}
         ` : ""}
       </div></details>
       <details><summary>Driving curves <span class="q">how the sticks and keys feel</span></summary><div class="sec">

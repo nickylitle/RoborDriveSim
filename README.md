@@ -110,6 +110,9 @@ Full 3D: the chassis is a rigid body that pitches, rolls, wheelies, tips, flips 
   - the drive's own rotors are gyros too.
 - **Skids, the body and the weapon's rim** touch the floor, walls and ceiling with friction. A blade tipped onto the
   floor or clipping a wall drags at its real tooth speed: it slows the blade and kicks the robot.
+- **Hits.** The floor pushes back during a hit (with friction), not after it, so a low blade's recoil slides and spins
+  the robot instead of launching it. A rigid impulse would stop the blade dead on a solid hit; real armour crushes, so
+  one tooth takes at most half the blade's energy (Setup, advanced: tune it from slow-motion video).
 - **The target box** is its own 3D body. A tooth hitting it is an impulse set by the blade's inertia, the target and
   your robot. It throws the target (a vertical sends it into the air), slows the blade and kicks your robot back,
   once per tooth.

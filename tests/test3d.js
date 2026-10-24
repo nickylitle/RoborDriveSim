@@ -91,5 +91,18 @@ for (const k of ["flapjack", "vertical", "drum", "pusher4wd", "eggbeater"]) {
   for (let i = 0; i < 5000; i++) s.step({ L: -1, R: -1, W: 0 });
   check(x0 - s.state.x > 0.15, `${k}: pinned on a wall, then backs off it`, `wheels carry ${Nw.toFixed(1)} N on the wall, backed ${((x0 - s.state.x) * 1000).toFixed(0)} mm in 0.5 s`);
 }
+// an undercutter's hit throws the target, not itself: the robot stays near the floor through the hit
+for (const k of ["flapjack", "undercutter"]) for (const ang of [0, 20, -30]) {
+  const R = B.build(clone(B.PRESETS[k])), s = new P.Sim(R, { arena: 0, target: { x: 0.6, y: 0, psi: ang * Math.PI / 180, m: 1.36, a: 0.2, b: 0.2, c: 0.08, mu: 0.5 } });
+  s.reset({ x: 0, y: 0, psi: 0 }); for (let i = 0; i < 25000; i++) s.step({ L: 0, R: 0, W: 1 });
+  const E0 = 0.5 * R.weapon.I * s.ww * s.ww; let t0 = null, z = 0, Ek = 0;
+  for (let i = 0; i < 20000 && (t0 === null || s.t - t0 < 0.03); i++) {
+    s.step({ L: 0.6, R: 0.6, W: 1 });
+    if (s.hits.length && t0 === null) { t0 = s.t; Ek = 0.5 * R.weapon.I * s.ww * s.ww; }
+    if (t0 !== null) z = Math.max(z, s.state.zcog);
+  }
+  const lift = (z - R.cog.h) * 1000;
+  check(t0 !== null && lift < 25 && Ek > 0.45 * E0, `${k} hits a box at ${ang} deg: stays down, blade keeps speed`, `lifts ${lift.toFixed(0)} mm in 30 ms, first tooth leaves the blade ${(100 * Ek / E0).toFixed(0)} % of its energy`);
+}
 console.log(`\n${n - fails} of ${n} passed`);
 process.exit(fails ? 1 : 0);

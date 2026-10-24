@@ -294,6 +294,7 @@
         // drag: set so a free-spinning weapon settles a little under its no-load speed (bearings + air)
         drag: 0, drag0: wa.drag0 !== undefined ? wa.drag0 : 0.002 * I / 7.6e-4,
         bite_e: wa.bite_e !== undefined ? wa.bite_e : 0.3, flingShare: 0.35,
+        hit_take: wa.hit_take !== undefined ? wa.hit_take / 100 : 0.5,
         rpm_cap: W.rpm_cap || 0,
       };
       // air drag: about 3 % of the motor's stall-limited torque at the theoretical top speed
