@@ -79,12 +79,15 @@ published free speed.
 |---|---|---|
 | Throttle / steer | W S A D or arrows | left stick up-down, right stick left-right (arcade) |
 | Tank | W S left side, ↑ ↓ right side | one stick per side |
-| Weapon | Space (toggle or hold) | right trigger (analog), A / Cross toggles |
-| Precision | Shift | |
+| Weapon throttle | hold Shift to raise it, Ctrl to lower it (it stays where you let go) | right trigger (analog) |
+| Weapon on / off | Space (toggle or hold; off also zeroes the throttle) | A / Cross toggles |
+| Precision | Q | |
 | Reset / pause | R / P | B / Circle, Start |
 | Target box | T | |
 | Camera: chase, top, whole arena, orbit | C; drag to orbit, wheel to zoom | |
 | Slow motion | [ and ] | |
+
+Ctrl+W closes a browser tab and no page can block it, so the sim asks "Leave site?" first. Click **Cancel** to keep driving.
 
 **CSV** saves the last minute of driving: position, height, heading, pitch, roll, speed, commands, weapon rpm, battery
 current and voltage.

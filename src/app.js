@@ -56,7 +56,7 @@
     S = clone(v.startsWith("m:") ? mine[v.slice(2)] : RB.PRESETS[v.slice(2)]);
     if (!S.controls) S.controls = clone(IN.DEFAULT_CONTROLS);
     store.set("rds.last", S.name);
-    input.weaponOn = false;
+    input.weaponOn = false; input.wthr = 0;
     rebuild(); renderSetup();
   };
 
@@ -189,7 +189,8 @@
         ${fChk("Steering flips when backing up", "controls.invert_reverse")}
         ${fChk("Invert the controls when it is upside down", "controls.auto_invert", { hint: "like flipping your transmitter's invert switch the moment it lands upside down" })}
         ${fNum("Key ramp (keyboard)", "controls.ramp", "s", { hint: "how long a held key takes to reach full" })}
-        ${fNum("Precision (Shift held)", "controls.precision", "%")}
+        ${fNum("Precision (Q held)", "controls.precision", "%")}
+        ${fNum("Weapon throttle on Shift / Ctrl: 0 to full in", "controls.weapon_key_ramp", "s", { ph: 1, hint: "hold Shift to spin up, Ctrl to spin down; it stays where you let go. Space switches it off." })}
         ${fSel("Weapon button", "controls.weapon_mode", [["toggle", "Toggle on / off"], ["hold", "Hold to spin"]])}
         ${fNum("Weapon throttle when on", "controls.weapon_level", "%")}
       </div></details>
@@ -303,7 +304,9 @@
     $("bTarget").classList.toggle("on", env.target); if (view) $("bFollow").textContent = "Camera: " + view.mode;
     $("bPause").classList.toggle("on", paused); $("bPause").textContent = paused ? "Paused" : "Pause";
   }
-  function doReset() { if (sim) sim.reset(); if (view) { view.camYaw = null; view.target(sim.tg); } trail = []; chart = []; tele = []; topSpeed = 0; matchT0 = 0; input.weaponOn = false; }
+  // Ctrl is the weapon throttle, and Ctrl+W (close tab) cannot be blocked by a page: ask before leaving instead
+  window.addEventListener("beforeunload", e => { e.preventDefault(); e.returnValue = ""; });
+  function doReset() { if (sim) sim.reset(); if (view) { view.camYaw = null; view.target(sim.tg); } trail = []; chart = []; tele = []; topSpeed = 0; matchT0 = 0; input.weaponOn = false; input.wthr = 0; }
   function togglePause() { paused = !paused; syncButtons(); }
   let flashT = 0;
   function flash(t, sub) { const m = $("msg"); m.innerHTML = t + (sub ? `<small>${sub}</small>` : ""); m.hidden = false; flashT = performance.now() + 2200; }
@@ -441,12 +444,12 @@
   function keysHelp() {
     const C = S.controls; if (keysMix === C.mix + C.weapon_mode) return; keysMix = C.mix + C.weapon_mode;
     const drive = C.mix === "tank" ? `<b>W / S</b> left side<br><b>↑ / ↓</b> right side` : `<b>W / S ↑ ↓</b> throttle<br><b>A / D ← →</b> steer`;
-    $("keys").innerHTML = `${drive}<br><b>Shift</b> precision<br><b>Space</b> weapon ${C.weapon_mode === "toggle" ? "on / off" : "(hold)"}<br><b>R</b> reset · <b>P</b> pause<br><b>T</b> target · <b>C</b> camera<br><b>drag</b> orbit · <b>wheel</b> zoom<br><b>[ ]</b> slow motion · <b>H</b> help`;
+    $("keys").innerHTML = `${drive}<br><b>Shift / Ctrl</b> weapon throttle up / down<br><b>Space</b> weapon ${C.weapon_mode === "toggle" ? "on / off" : "(hold)"} · <b>Q</b> precision<br><b>R</b> reset · <b>P</b> pause<br><b>T</b> target · <b>C</b> camera<br><b>drag</b> orbit · <b>wheel</b> zoom<br><b>[ ]</b> slow motion · <b>H</b> help`;
   }
 
   $("helpBox").innerHTML = `<h2 style="margin-top:0">RoborDriveSim</h2>
     <p>Drive your combat robot with its real weight, COG, wheels and weapon. Set it up under <b>Setup</b> (or start from an archetype), then drive with the keyboard or a game controller.</p>
-    <h3>Keyboard</h3><p><kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd> throttle, <kbd>A</kbd><kbd>D</kbd> or <kbd>←</kbd><kbd>→</kbd> steer (tank mix: <kbd>W</kbd><kbd>S</kbd> left side, <kbd>↑</kbd><kbd>↓</kbd> right side). <kbd>Shift</kbd> precision. <kbd>Space</kbd> weapon. <kbd>R</kbd> reset, <kbd>P</kbd> pause, <kbd>T</kbd> target box, <kbd>C</kbd> camera (chase, top, whole arena, orbit; drag to orbit, wheel to zoom), <kbd>[</kbd><kbd>]</kbd> slow motion, <kbd>Esc</kbd> closes panels.</p>
+    <h3>Keyboard</h3><p><kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd> throttle, <kbd>A</kbd><kbd>D</kbd> or <kbd>←</kbd><kbd>→</kbd> steer (tank mix: <kbd>W</kbd><kbd>S</kbd> left side, <kbd>↑</kbd><kbd>↓</kbd> right side). <kbd>Shift</kbd> / <kbd>Ctrl</kbd> held: weapon throttle up / down (it stays where you let go). <kbd>Space</kbd> weapon full on / off (off also zeroes the throttle). <kbd>Q</kbd> precision. Ctrl+W would close the tab, so the page asks before leaving. <kbd>R</kbd> reset, <kbd>P</kbd> pause, <kbd>T</kbd> target box, <kbd>C</kbd> camera (chase, top, whole arena, orbit; drag to orbit, wheel to zoom), <kbd>[</kbd><kbd>]</kbd> slow motion, <kbd>Esc</kbd> closes panels.</p>
     <h3>Game controller</h3><p>Plug it in and press a button (Chrome or Edge). Arcade: left stick up/down throttle, right stick left/right steering. Single: the left stick does both. Tank: one stick per side. Right trigger: weapon throttle. A / Cross: weapon on or off. B / Circle: reset. Start: pause.</p>
     <h3>What it simulates</h3><ul>
       <li>Each wheel's grip from the load on it: a tire curve that rises, peaks and slides; weight shifts back when it speeds up, forward when it brakes and outward in a turn (from COG height).</li>
