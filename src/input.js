@@ -32,6 +32,7 @@
     weapon_off_after_hit: true,       // let go of the weapon after each hit, as drivers do (press again to spin back up)
     mouse_px: 250,                    // mouse stick: how far (pixels) the mouse moves for full stick
     mouse_spring: 0,                  // mouse stick: how fast it springs back to centre (per second; 0 = stays put)
+    mouse_deadzone: 5,                // mouse stick: % of travel round the centre that reads as zero (each axis)
     keys: { up: ["KeyW", "ArrowUp"], down: ["KeyS", "ArrowDown"], left: ["KeyA", "ArrowLeft"], right: ["KeyD", "ArrowRight"],
             tankLup: ["KeyW"], tankLdown: ["KeyS"], tankRup: ["ArrowUp", "KeyI"], tankRdown: ["ArrowDown", "KeyK"],
             weapon: ["Space"], precision: ["KeyQ"], wup: ["ShiftLeft", "ShiftRight"], wdown: ["ControlLeft", "ControlRight"] },
@@ -197,8 +198,11 @@
       if (this.mouseLocked()) {
         const sp = C.mouse_spring || 0;
         if (sp > 0) { const f = Math.max(0, 1 - sp * dt); this.mx *= f; this.my *= f; }
-        if (!this.any(K.up) && !this.any(K.down)) { thr = this.my; tL = this.my; tR = this.my; }
-        if (!this.any(K.left) && !this.any(K.right)) steer = -this.mx;
+        // deadzone round the centre, the rest rescaled so full stick is still full
+        const d = Math.min(0.9, Math.max(0, (C.mouse_deadzone === undefined ? 5 : C.mouse_deadzone) / 100));
+        const dz = v => Math.abs(v) <= d ? 0 : Math.sign(v) * (Math.abs(v) - d) / (1 - d), my = dz(this.my), mx = dz(this.mx);
+        if (!this.any(K.up) && !this.any(K.down)) { thr = my; tL = my; tR = my; }
+        if (!this.any(K.left) && !this.any(K.right)) steer = -mx;
       }
       // weapon throttle on Shift (up) and Ctrl (down): it stays where you leave it
       const wk = dt / Math.max(C.weapon_key_ramp === undefined ? 1 : C.weapon_key_ramp, 0.05);

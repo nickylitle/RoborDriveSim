@@ -47,4 +47,8 @@ inp3.down.delete("Space"); inp3.read(1 / 60); inp3.down.add("Space"); const wAga
 check(wHeld > 0.99 && wCut === 0 && wAgain > 0.99, "a hit lets go of a held weapon until it is pressed again", `${wHeld}, ${wCut}, ${wAgain}`);
 const inp4 = new I.Input(null); inp4.weaponOn = true; inp4.read(1 / 60); inp4.cutWeapon();
 check(inp4.read(1 / 60).W === 0 && !inp4.weaponOn, "a hit turns a toggled weapon off");
+// mouse stick deadzone: a small offset reads zero, full stick still reads full
+const inp5 = new I.Input(null); inp5.C.thr.deadband = 0; inp5.C.thr.expo = 0; inp5.C.steer.deadband = 0; inp5.mouseLocked = () => true;
+inp5.mx = 0; inp5.my = 0.04; const rSmall = inp5.read(1 / 60); inp5.my = 1; const rFull = inp5.read(1 / 60);
+check(rSmall.L === 0 && rSmall.R === 0 && rFull.L > 0.99, "mouse stick: 4 % sits in the 5 % deadzone, full is still full", `${rSmall.L}, ${rFull.L}`);
 console.log(`\n${n - fails} of ${n} passed`); process.exit(fails ? 1 : 0);

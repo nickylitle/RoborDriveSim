@@ -198,6 +198,7 @@
         ${fChk("Invert the controls when it is upside down", "controls.auto_invert", { hint: "like flipping your transmitter's invert switch the moment it lands upside down" })}
         ${fNum("Key ramp (keyboard)", "controls.ramp", "s", { hint: "how long a held key takes to reach full" })}
         ${fNum("Mouse stick: mouse travel for full stick", "controls.mouse_px", "px", { ph: 250, hint: "M takes the mouse as a joystick (Esc lets go): up / down throttle, left / right steering; right click centres it, the wheel is the weapon throttle, left click the weapon on / off" })}
+        ${fNum("Mouse stick deadzone", "controls.mouse_deadzone", "%", { ph: 5, hint: "travel round the centre that reads as zero, on each axis, so a small bump of the mouse doesn't creep the robot" })}
         ${fNum("Mouse stick springs back to centre", "controls.mouse_spring", "/s", { ph: 0, hint: "0 = it stays where you leave it, like a held stick; 3 = most of the way back in a third of a second" })}
         ${fNum("Precision (Q held)", "controls.precision", "%")}
         ${fNum("Weapon throttle on Shift / Ctrl: 0 to full in", "controls.weapon_key_ramp", "s", { ph: 1, hint: "hold Shift to spin up, Ctrl to spin down; it stays where you let go. Space switches it off." })}
