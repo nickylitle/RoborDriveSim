@@ -90,6 +90,14 @@ published free speed.
 
 Ctrl+W closes a browser tab and no page can block it, so the sim asks "Leave site?" first. Click **Cancel** to keep driving.
 
+**Analog keyboards** (Wooting, Razer Huntsman V3 Pro, Keychron HE and similar): browsers cannot read how far a key is
+pressed, but in the keyboard's gamepad mode (Wootility: Xbox or classic controller; Razer Synapse; Keychron Launcher)
+it shows up as a controller, which they can. Turn that on, then in **Setup → Analog keyboard / controller map** press
+**Learn** beside each control and press its key all the way, then let go. Each control reads from where its stick or
+trigger rests to where a full press takes it, so any layout works (XInput sticks, DirectInput axes, analog triggers).
+Leave "ignore ordinary key presses" on: analog boards send the normal key too, which would read full the moment the key
+actuates. The map is kept in your browser for this computer. It works for any controller laid out its own way, too.
+
 **CSV** saves the last minute of driving: position, height, heading, pitch, roll, speed, commands, weapon rpm, battery
 current and voltage.
 

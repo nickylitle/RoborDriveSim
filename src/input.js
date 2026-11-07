@@ -8,6 +8,10 @@
  *   single: left stick does both
  *   tank:   left stick up/down = left side, right stick up/down = right side
  *   right trigger = weapon throttle (analog); A / Cross toggles the weapon on; B / Circle resets; Start pauses
+ * Analog keyboards (Wooting, Razer Huntsman V3 Pro, Keychron HE...) in their gamepad mode, or any controller laid out
+ * differently: a learned map (padmap) says which stick or trigger each control is. Learn one by pressing the key:
+ * whichever axis or button moves furthest from where it rested is it, read from its resting value to the value at a
+ * full press, so XInput sticks, DirectInput axes that rest at -1, and analog triggers all read 0..1.
  */
 (function (root) {
   "use strict";
@@ -50,12 +54,35 @@
     return [cl(L), cl(R)];
   }
 
+  // the controls a learned map can give, and what each does
+  const PAD_CHANNELS = [["fwd", "throttle forward"], ["back", "throttle back"], ["left", "steer left"],
+                        ["right", "steer right"], ["weapon", "weapon throttle"],
+                        ["tankLup", "left side forward (tank)"], ["tankLdown", "left side back (tank)"],
+                        ["tankRup", "right side forward (tank)"], ["tankRdown", "right side back (tank)"]];
+  // a learned source's value 0..1: from its resting value to its full-press value
+  function srcValue(gp, src) {
+    if (!src || !gp) return 0;
+    let raw;
+    if (src.b !== undefined) { const b = gp.buttons[src.b]; raw = b ? (b.value || (b.pressed ? 1 : 0)) : 0; }
+    else raw = gp.axes[src.a] || 0;
+    const span = src.full - src.rest;
+    if (Math.abs(span) < 1e-6) return 0;
+    return Math.max(0, Math.min(1, (raw - src.rest) / span));
+  }
+  function padSnapshot(gp) {
+    return { axes: Array.from(gp.axes), buttons: gp.buttons.map(b => b.value || (b.pressed ? 1 : 0)) };
+  }
+
   class Input {
     constructor(target) {
       this.C = JSON.parse(JSON.stringify(DEFAULT_CONTROLS));
       this.down = new Set(); this.ramp = { thr: 0, steer: 0, L: 0, R: 0 };
       this.weaponOn = false; this.wthr = 0; this.events = [];
       this.pad = null; this.padPrev = {};
+      this.padmap = null;               // {fwd: src, back: src, ...}: learned (see learn); null = the standard layout
+      this.padKeysOff = true;           // while a learned map is in use, ignore the keyboard's own drive keys (analog
+                                        // boards send both, and a digital key would read full the moment it actuates)
+      this.learning = null;             // {ch, rest, best} while learning a control
       if (target) {
         target.addEventListener("keydown", e => {
           if (e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
@@ -72,11 +99,52 @@
       }
     }
     any(list) { return list.some(k => this.down.has(k)); }
+    connectedPad() {
+      const pads = typeof navigator !== "undefined" && navigator.getGamepads ? navigator.getGamepads() : [];
+      return Array.from(pads || []).find(p => p && p.connected) || null;
+    }
+    // learning: call learn(ch) with the key released, then press it fully and let go; learnStep() returns the source
+    // once the press is over (or null while waiting). An axis or button counts once it moves more than 0.5.
+    learn(ch) {
+      const gp = this.connectedPad(); if (!gp) return false;
+      this.learning = { ch, rest: padSnapshot(gp), best: null };
+      return true;
+    }
+    learnStep() {
+      const L = this.learning, gp = this.connectedPad(); if (!L || !gp) return null;
+      const now = padSnapshot(gp);
+      let top = null;
+      now.axes.forEach((v, i) => { const d = Math.abs(v - (L.rest.axes[i] || 0)); if (!top || d > top.d) top = { d, a: i, v }; });
+      now.buttons.forEach((v, i) => { const d = Math.abs(v - (L.rest.buttons[i] || 0)); if (!top || d > top.d) top = { d, b: i, v }; });
+      if (top && top.d > Math.max(0.5, L.best ? L.best.d : 0)) L.best = top;          // the deepest press so far
+      if (L.best) {
+        const cur = L.best.a !== undefined ? now.axes[L.best.a] : now.buttons[L.best.b];
+        const rest = L.best.a !== undefined ? L.rest.axes[L.best.a] : L.rest.buttons[L.best.b];
+        if (Math.abs(cur - rest) < 0.15) {                // let go: done
+          const src = L.best.a !== undefined ? { a: L.best.a, rest: +rest.toFixed(3), full: +L.best.v.toFixed(3) }
+                                             : { b: L.best.b, rest: +rest.toFixed(3), full: +L.best.v.toFixed(3) };
+          this.padmap = Object.assign({}, this.padmap || {}, { [L.ch]: src });
+          this.learning = null;
+          return src;
+        }
+      }
+      return null;
+    }
+    // each mapped control's value now (0..1), for a live display
+    padValues() {
+      const gp = this.connectedPad(), out = {};
+      for (const [ch] of PAD_CHANNELS) out[ch] = this.padmap && this.padmap[ch] ? srcValue(gp, this.padmap[ch]) : null;
+      return out;
+    }
     // the commands for this frame; dt = real seconds since the last
     read(dt) {
       const C = this.C, K = Object.assign({}, DEFAULT_CONTROLS.keys, C.keys), prec = this.any(K.precision) ? C.precision / 100 : 1;
       const rampTo = (key, tgt) => { const r = this.ramp, k = dt / Math.max(C.ramp, 1e-3); r[key] += Math.max(-k, Math.min(k, tgt - r[key])); return r[key]; };
-      // keyboard
+      // keyboard (left out while a learned map drives, if asked: an analog board sends its keys too)
+      const gpNow = this.connectedPad(), mapped = !!(this.padmap && gpNow && Object.keys(this.padmap).length);
+      const keysOff = mapped && this.padKeysOff;
+      if (keysOff) for (const k of [...K.up, ...K.down, ...K.left, ...K.right, ...K.tankLup, ...K.tankLdown, ...K.tankRup,
+                                    ...K.tankRdown]) this.down.delete(k);
       let thr = rampTo("thr", (this.any(K.up) ? 1 : 0) - (this.any(K.down) ? 1 : 0));
       let steer = rampTo("steer", (this.any(K.left) ? 1 : 0) - (this.any(K.right) ? 1 : 0));
       let tL = rampTo("L", (this.any(K.tankLup) ? 1 : 0) - (this.any(K.tankLdown) ? 1 : 0));
@@ -91,7 +159,17 @@
       const pads = typeof navigator !== "undefined" && navigator.getGamepads ? navigator.getGamepads() : [];
       const gp = Array.from(pads || []).find(p => p && p.connected);
       this.pad = gp ? gp.id : null;
-      if (gp) {
+      if (gp && mapped) {                                // a learned map: each control from its own stick or trigger
+        const m = this.padmap, v = ch => srcValue(gp, m[ch]), big = x => Math.abs(x) > 0.02;
+        const pair = (a, b) => (m[a] || m[b]) ? v(a) - v(b) : null;
+        const pt = pair("fwd", "back"), ps = pair("left", "right"), pl = pair("tankLup", "tankLdown"), pr = pair("tankRup", "tankRdown");
+        if (pt !== null && (keysOff || big(pt))) thr = pt;
+        if (ps !== null && (keysOff || big(ps))) steer = ps;
+        if (pl !== null && (keysOff || big(pl))) tL = pl;
+        if (pr !== null && (keysOff || big(pr))) tR = pr;
+        if (C.mix === "tank" && pl === null && pt !== null) { tL = thr - steer; tR = thr + steer; }   // tank from a stick map
+        if (m.weapon) { const w = v("weapon"); if (w > 0.02) weapon = Math.max(weapon, w * C.weapon_level / 100); }
+      } else if (gp) {
         const ax = i => gp.axes[i] || 0, bt = i => gp.buttons[i] ? gp.buttons[i].value || (gp.buttons[i].pressed ? 1 : 0) : 0;
         const big = v => Math.abs(v) > 0.06;
         if (C.mix === "tank") { if (big(ax(1))) tL = -ax(1); if (big(ax(3))) tR = -ax(3); }
@@ -111,7 +189,7 @@
     takeEvents() { const e = this.events; this.events = []; return e; }
   }
 
-  const api = { Input, curve, mixer, DEFAULT_CONTROLS };
+  const api = { Input, curve, mixer, DEFAULT_CONTROLS, PAD_CHANNELS, srcValue };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else { root.RDS = root.RDS || {}; root.RDS.input = api; }
 })(typeof window !== "undefined" ? window : globalThis);

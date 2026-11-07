@@ -19,6 +19,10 @@
   const CAMS = ["chase", "top", "arena", "orbit"];
   let trail = [], chart = [], tele = [], topSpeed = 0, matchT0 = 0, errorText = "";
   const input = new IN.Input(window);
+  // an analog keyboard (or any controller laid out its own way): its learned map belongs to this computer, not a robot
+  const padStore = store.get("rds.padmap", null);
+  if (padStore) { input.padmap = padStore.map || null; input.padKeysOff = padStore.keysOff !== false; }
+  const savePad = () => store.set("rds.padmap", { map: input.padmap, keysOff: input.padKeysOff });
 
   function targetOpts() {
     if (!env.target) return null;
@@ -195,6 +199,7 @@
         ${fSel("Weapon button", "controls.weapon_mode", [["toggle", "Toggle on / off"], ["hold", "Hold to spin"]])}
         ${fNum("Weapon throttle when on", "controls.weapon_level", "%")}
       </div></details>
+      <details id="padSec"><summary>Analog keyboard / controller map <span class="q">which key or stick is which</span></summary><div class="sec" id="padBody"></div></details>
       <details><summary>Arena and target <span class="q">where it drives</span></summary><div class="sec">
         <div class="f"><label>Arena</label><select id="arenaSel">${opts(RB.ARENAS).map(([k, l]) => `<option value="${k}"${k === env.arena ? " selected" : ""}>${l}</option>`).join("")}</select></div>
         <div class="f"><label>Target box mass</label><input type="number" id="tMass" value="${env.tmass_g}"><span class="u">g</span></div>
@@ -223,6 +228,7 @@
     });
     const envChange = () => { env.arena = $("arenaSel").value; env.tmass_g = +$("tMass").value; env.tsize = +$("tSize").value; env.theight = +$("tHeight").value; env.tmu = +$("tMu").value; store.set("rds.env", env); rebuild(); drawSetup(); };
     ["arenaSel", "tMass", "tSize", "tHeight", "tMu"].forEach(id => $(id).addEventListener("change", envChange));
+    renderPad();
     const nw = $("sbody").querySelector('[data-p="_nwheels"]'); if (nw) nw.value = String(S.wheels.length);
     const ns = $("sbody").querySelector('[data-p="_nskids"]'); if (ns) ns.value = String(S.skids.length);
     drawSetup();
@@ -322,6 +328,39 @@
     el.addEventListener("click", () => { if (el.tagName === "BUTTON") el.blur(); });
     el.addEventListener("change", () => el.blur());
   });
+  // ------------------------------------------------------------------ analog keyboard / controller map
+  const srcText = src => !src ? "not set" : src.b !== undefined ? `button ${src.b} (${src.rest} → ${src.full})` : `axis ${src.a} (${src.rest} → ${src.full})`;
+  function renderPad() {
+    const B = $("padBody"); if (!B) return;
+    const gp = input.connectedPad(), tank = S.controls.mix === "tank";
+    const rows = IN.PAD_CHANNELS.filter(([ch]) => tank || !ch.startsWith("tank"));    // tank: its own side channels too
+    B.innerHTML = `
+      <div class="hint" style="margin-bottom:6px">${gp ? `Seen: <b>${gp.id.replace(/</g, "&lt;").slice(0, 70)}</b>` :
+        "<b>No controller seen.</b> Turn on your keyboard's gamepad mode (Wootility: Xbox controller or classic controller; Razer Synapse: analog / gamepad keys; Keychron Launcher: gamepad), then press any key."}<br>
+        Browsers cannot read how far a key is pressed directly; in gamepad mode the keyboard shows up as a controller, and that they can read.
+        Press <b>Learn</b>, then press that key all the way and let go.</div>
+      <table class="t" id="padTbl"><tr><th>Control</th><th>Mapped to</th><th style="width:120px">Now</th><th></th></tr>
+      ${rows.map(([ch, lab]) => `<tr><td>${lab}</td><td style="font-family:var(--mono);font-size:11px" id="padSrc_${ch}">${input.learning && input.learning.ch === ch ? "press it fully, then let go…" : srcText(input.padmap && input.padmap[ch])}</td>
+        <td><div style="height:8px;background:var(--panel3);border-radius:4px;overflow:hidden"><div id="padBar_${ch}" style="height:100%;width:0;background:var(--blue)"></div></div></td>
+        <td><button data-learn="${ch}"${gp ? "" : " disabled"}>Learn</button> <button data-unmap="${ch}" title="Forget this one">×</button></td></tr>`).join("")}</table>
+      <div class="f"><label>Ignore this keyboard's ordinary key presses while the map is in use</label><input type="checkbox" id="padKeysOff"${input.padKeysOff ? " checked" : ""}>
+        <div class="hint">analog boards send both: without this, W reads full the moment the key actuates and the analog depth is lost</div></div>
+      <div class="f"><button id="padClear">Clear the map (standard controller layout)</button></div>`;
+    B.querySelectorAll("[data-learn]").forEach(b => b.onclick = () => { if (input.learn(b.dataset.learn)) renderPad(); b.blur(); });
+    B.querySelectorAll("[data-unmap]").forEach(b => b.onclick = () => { if (input.padmap) { delete input.padmap[b.dataset.unmap]; if (!Object.keys(input.padmap).length) input.padmap = null; } savePad(); renderPad(); });
+    $("padKeysOff").onchange = e => { input.padKeysOff = e.target.checked; savePad(); };
+    $("padClear").onclick = () => { input.padmap = null; input.learning = null; savePad(); renderPad(); };
+  }
+  let padSeen = null;
+  function padTick() {
+    if (input.learning) { const src = input.learnStep(); if (src) { savePad(); renderPad(); } }
+    const gp = input.connectedPad(), id = gp ? gp.id : null;
+    if (id !== padSeen) { padSeen = id; renderPad(); }
+    if (!$("padTbl") || !$("padSec").open) return;
+    const v = input.padValues();
+    for (const ch in v) { const el = $("padBar_" + ch); if (el) el.style.width = ((v[ch] || 0) * 100).toFixed(0) + "%"; }
+  }
+
   // ------------------------------------------------------------------ the loop
   const cv = $("cv"), ccv = $("chartCv"), cctx = ccv.getContext("2d");
   try { view = new window.RDS.View(cv); view.onMode = () => syncButtons(); } catch (e) { console.error(e); }
@@ -347,9 +386,10 @@
         timeScale = L[j]; $("speedSel").value = String(timeScale);
       }
     }
+    padTick();
     let u = input.read(dt);
     if (sim && S.controls.auto_invert !== false && sim.state.upsideDown) u = { L: -u.R, R: -u.L, W: u.W, raw: u.raw };
-    $("padInfo").textContent = input.pad ? "controller: " + input.pad.slice(0, 34) : "no controller (keyboard)";
+    $("padInfo").textContent = input.pad ? (input.padmap ? "mapped: " : "controller: ") + input.pad.slice(0, 34) : "no controller (keyboard)";
     if (sim && !paused) {
       if (!matchT0 && (Math.abs(u.L) + Math.abs(u.R) + u.W) > 0.01) matchT0 = sim.t || 1e-9;
       carry += dt * timeScale;
@@ -453,6 +493,7 @@
     <p>Drive your combat robot with its real weight, COG, wheels and weapon. Set it up under <b>Setup</b> (or start from an archetype), then drive with the keyboard or a game controller.</p>
     <h3>Keyboard</h3><p><kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd> throttle, <kbd>A</kbd><kbd>D</kbd> or <kbd>←</kbd><kbd>→</kbd> steer (tank mix: <kbd>W</kbd><kbd>S</kbd> left side, <kbd>↑</kbd><kbd>↓</kbd> right side). <kbd>Shift</kbd> / <kbd>Ctrl</kbd> held: weapon throttle up / down (it stays where you let go). <kbd>Space</kbd> weapon full on / off (off also zeroes the throttle). <kbd>Q</kbd> precision. Ctrl+W would close the tab, so the page asks before leaving. <kbd>R</kbd> reset, <kbd>P</kbd> pause, <kbd>T</kbd> target box, <kbd>C</kbd> camera (chase, top, whole arena, orbit; drag to orbit, wheel to zoom), <kbd>[</kbd><kbd>]</kbd> slow motion, <kbd>Esc</kbd> closes panels.</p>
     <h3>Game controller</h3><p>Plug it in and press a button (Chrome or Edge). Arcade: left stick up/down throttle, right stick left/right steering. Single: the left stick does both. Tank: one stick per side. Right trigger: weapon throttle. A / Cross: weapon on or off. B / Circle: reset. Start: pause.</p>
+    <h3>Analog keyboard</h3><p>Wooting, Razer Huntsman V3 Pro, Keychron HE and similar: turn on the keyboard's gamepad mode in its own app (Wootility, Synapse, Launcher), then in <b>Setup → Analog keyboard / controller map</b> press <b>Learn</b> beside each control and press that key all the way. How far you press is how much throttle or steering you get. Keep "ignore ordinary key presses" on, so the key's digital press does not override its depth.</p>
     <h3>What it simulates</h3><ul>
       <li>Each wheel's grip from the load on it: a tire curve that rises, peaks and slides; weight shifts back when it speeds up, forward when it brakes and outward in a turn (from COG height).</li>
       <li>Motors with back-EMF, resistance and the ESC's current limit, drag brake or coast, gearbox losses, all on one battery: spinning the weapon up sags the drive.</li>
