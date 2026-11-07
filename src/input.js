@@ -143,8 +143,13 @@
       // keyboard (left out while a learned map drives, if asked: an analog board sends its keys too)
       const gpNow = this.connectedPad(), mapped = !!(this.padmap && gpNow && Object.keys(this.padmap).length);
       const keysOff = mapped && this.padKeysOff;
-      if (keysOff) for (const k of [...K.up, ...K.down, ...K.left, ...K.right, ...K.tankLup, ...K.tankLdown, ...K.tankRup,
-                                    ...K.tankRdown]) this.down.delete(k);
+      // only the keys of controls the map actually has: an unmapped control (A / D before they are learned, or a key
+      // the board does not send as a stick) still drives from the keyboard
+      if (keysOff) {
+        const pm = this.padmap, kmap = { fwd: K.up, back: K.down, left: K.left, right: K.right, tankLup: K.tankLup,
+                                         tankLdown: K.tankLdown, tankRup: K.tankRup, tankRdown: K.tankRdown };
+        for (const ch in kmap) if (pm[ch]) for (const k of kmap[ch]) this.down.delete(k);
+      }
       let thr = rampTo("thr", (this.any(K.up) ? 1 : 0) - (this.any(K.down) ? 1 : 0));
       let steer = rampTo("steer", (this.any(K.left) ? 1 : 0) - (this.any(K.right) ? 1 : 0));
       let tL = rampTo("L", (this.any(K.tankLup) ? 1 : 0) - (this.any(K.tankLdown) ? 1 : 0));
@@ -163,10 +168,12 @@
         const m = this.padmap, v = ch => srcValue(gp, m[ch]), big = x => Math.abs(x) > 0.02;
         const pair = (a, b) => (m[a] || m[b]) ? v(a) - v(b) : null;
         const pt = pair("fwd", "back"), ps = pair("left", "right"), pl = pair("tankLup", "tankLdown"), pr = pair("tankRup", "tankRdown");
-        if (pt !== null && (keysOff || big(pt))) thr = pt;
-        if (ps !== null && (keysOff || big(ps))) steer = ps;
-        if (pl !== null && (keysOff || big(pl))) tL = pl;
-        if (pr !== null && (keysOff || big(pr))) tR = pr;
+        // a pair drives outright only when both its ends are mapped; half a pair adds to the keyboard's other half
+        const both = (a, b) => !!(m[a] && m[b]);
+        if (pt !== null && ((keysOff && both("fwd", "back")) || big(pt))) thr = big(pt) ? pt : (both("fwd", "back") ? pt : thr);
+        if (ps !== null && ((keysOff && both("left", "right")) || big(ps))) steer = big(ps) ? ps : (both("left", "right") ? ps : steer);
+        if (pl !== null && ((keysOff && both("tankLup", "tankLdown")) || big(pl))) tL = big(pl) ? pl : tL;
+        if (pr !== null && ((keysOff && both("tankRup", "tankRdown")) || big(pr))) tR = big(pr) ? pr : tR;
         if (C.mix === "tank" && pl === null && pt !== null) { tL = thr - steer; tR = thr + steer; }   // tank from a stick map
         if (m.weapon) { const w = v("weapon"); if (w > 0.02) weapon = Math.max(weapon, w * C.weapon_level / 100); }
       } else if (gp) {

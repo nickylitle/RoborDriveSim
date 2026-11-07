@@ -30,4 +30,12 @@ axes[3] = -1; inp.down.add("KeyW"); r = inp.read(1 / 60);
 check(r.L === 0, "the board's ordinary W press is ignored while mapped", r.L);
 inp.padKeysOff = false; inp.down.add("KeyW"); for (let k = 0; k < 30; k++) r = inp.read(1 / 60);
 check(r.L > 0.99, "unless asked not to", r.L);
+// only W / S learned: A and D still steer from the keyboard (they were thrown away with the mapped keys)
+const inp2 = new I.Input(null); inp2.C.steer.deadband = 0; inp2.C.steer.expo = 0; inp2.C.steer.rate = 100;
+inp2.padmap = { fwd: { a: 1, rest: 0, full: -1 }, back: { a: 1, rest: 0, full: 1 } };
+axes[0] = 0; axes[1] = 0; axes[3] = -1;
+inp2.down.add("KeyA"); for (let k = 0; k < 30; k++) r = inp2.read(1 / 60);
+check(r.L < -0.99 && r.R > 0.99, "only W / S mapped: A still steers from the keyboard", `${r.L}, ${r.R}`);
+inp2.down.add("KeyW"); r = inp2.read(1 / 60);
+check(!inp2.down.has("KeyW"), "while W (mapped) is still ignored", [...inp2.down].join(","));
 console.log(`\n${n - fails} of ${n} passed`); process.exit(fails ? 1 : 0);
