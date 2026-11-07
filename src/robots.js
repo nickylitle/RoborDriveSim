@@ -296,6 +296,8 @@
         bite_e: wa.bite_e !== undefined ? wa.bite_e : 0.3, flingShare: 0.35,
         hit_take: wa.hit_take !== undefined ? wa.hit_take / 100 : 0.5,
         rpm_cap: W.rpm_cap || 0,
+        // the ESC brakes the weapon when it is switched off (drag brake: the motor's phases shorted, up to this current)
+        brake: W.brake !== false, brake_A: W.brake_A || W.esc_A || 40,
       };
       // air drag: about 3 % of the motor's stall-limited torque at the theoretical top speed
       const wtop = (wm.kv * V * 2 * Math.PI / 60) / (W.ratio || 1);

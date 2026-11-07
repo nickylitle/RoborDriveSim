@@ -38,4 +38,13 @@ inp2.down.add("KeyA"); for (let k = 0; k < 30; k++) r = inp2.read(1 / 60);
 check(r.L < -0.99 && r.R > 0.99, "only W / S mapped: A still steers from the keyboard", `${r.L}, ${r.R}`);
 inp2.down.add("KeyW"); r = inp2.read(1 / 60);
 check(!inp2.down.has("KeyW"), "while W (mapped) is still ignored", [...inp2.down].join(","));
+// letting go of the weapon after a hit: in hold mode it stays off until the button is let go and pressed again
+axes[1] = 0; axes[3] = 0;
+const inp3 = new I.Input(null); inp3.C.weapon_mode = "hold";
+inp3.down.add("Space"); const wHeld = inp3.read(1 / 60).W;
+inp3.cutWeapon(); const wCut = inp3.read(1 / 60).W;
+inp3.down.delete("Space"); inp3.read(1 / 60); inp3.down.add("Space"); const wAgain = inp3.read(1 / 60).W;
+check(wHeld > 0.99 && wCut === 0 && wAgain > 0.99, "a hit lets go of a held weapon until it is pressed again", `${wHeld}, ${wCut}, ${wAgain}`);
+const inp4 = new I.Input(null); inp4.weaponOn = true; inp4.read(1 / 60); inp4.cutWeapon();
+check(inp4.read(1 / 60).W === 0 && !inp4.weaponOn, "a hit turns a toggled weapon off");
 console.log(`\n${n - fails} of ${n} passed`); process.exit(fails ? 1 : 0);

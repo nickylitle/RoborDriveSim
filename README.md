@@ -90,6 +90,12 @@ published free speed.
 
 Ctrl+W closes a browser tab and no page can block it, so the sim asks "Leave site?" first. Click **Cancel** to keep driving.
 
+**After a hit:** by default the weapon lets go after each hit, as drivers do, and the weapon ESC's drag brake slows the
+blade. Kept spinning back up, the motor's reaction twists the chassis while the hit has it on one wheel, and the blade's
+gyro turns that twist into tilt: the robot wobbles on its edge for seconds. Let go and braked, it is flat again in 0.15 to
+0.35 s. Both are switches in Setup ("Let go of the weapon after each hit", "ESC brakes the weapon when off"); press the
+weapon again to spin back up.
+
 **Mouse as a joystick:** press **M** (or the **Mouse** button). The mouse is captured and moves a stick (shown bottom
 left): up / down is throttle, left / right steering, and it stays where you leave it like a held stick (Setup → Driving
 curves: travel for full stick, and an optional spring back to centre). Right click centres it, the wheel is the weapon

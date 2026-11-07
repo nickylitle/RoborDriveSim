@@ -113,6 +113,8 @@
     c.weapon = W;
     if (W) {
       c.wmotor = { Ke: 60 / (2 * Math.PI * W.motor.kv), R: W.motor.R, Imax: W.motor.Imax, brake: false, oneWay: true };
+      // switched off with the ESC's brake on: the motor drags the blade down (shorted phases, current-limited)
+      c.wbrake = W.brake ? { Ke: c.wmotor.Ke, R: W.motor.R, Imax: W.brake_A || W.motor.Imax, brake: true, oneWay: false } : null;
       c.wc = rel(W.x, W.y, W.z);
       c.waxis = W.type === "horizontal" ? [0, 0, W.dir] : [0, -W.dir, 0];       // spin sense in the body frame
       // its rim, for walls and the floor
@@ -182,10 +184,11 @@
       let uw = u.W || 0;
       if (W && W.rpm_cap > 0) { const cap = W.rpm_cap * Math.PI / 30; uw *= Math.max(0, Math.min(1, (cap - this.ww) / (0.02 * cap))); }
       let vbus = R.battery.V, IW = 0;
+      const wmo = W && c.wbrake && (u.W || 0) < 0.02 ? c.wbrake : c.wmotor;
       const busPower = () => {
         let P = 0;
         for (let k = 0; k < c.ng; k++) { const g = gs[k]; if (!g.motors) { I[k] = 0; continue; } const wm = this.wg[k] * dm.G; I[k] = motorCurrent(uOf(g), wm, vbus, dm); P += g.motors * (I[k] * dm.R + dm.Ke * wm) * I[k]; }
-        if (W) { const wm = this.ww * W.G; IW = motorCurrent(uw, wm, vbus, c.wmotor); P += W.n * (IW * c.wmotor.R + c.wmotor.Ke * wm) * IW; }
+        if (W) { const wm = this.ww * W.G; IW = motorCurrent(uw, wm, vbus, wmo); P += W.n * (IW * wmo.R + wmo.Ke * wm) * IW; }
         return P;
       };
       for (let it = 0; it < 10; it++) vbus = 0.4 * vbus + 0.6 * (R.battery.V - R.battery.R * busPower() / vbus);

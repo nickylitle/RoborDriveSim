@@ -86,7 +86,7 @@
     return `<div class="f${o.adv ? " adv" : ""}"><label>${label}</label><select data-p="${path}" data-t="${o.type || "str"}"${o.wide ? ' style="flex:1 1 100%"' : ""}>${body}</select>${o.hint ? `<div class="hint">${o.hint}</div>` : ""}</div>`;
   }
   function fChk(label, path, o = {}) {
-    return `<div class="f${o.adv ? " adv" : ""}"><label>${label}</label><input type="checkbox" data-p="${path}"${get(S, path) ? " checked" : ""}>${o.hint ? `<div class="hint">${o.hint}</div>` : ""}</div>`;
+    return `<div class="f${o.adv ? " adv" : ""}"><label>${label}</label><input type="checkbox" data-p="${path}"${(get(S, path) === undefined ? o.def : get(S, path)) ? " checked" : ""}>${o.hint ? `<div class="hint">${o.hint}</div>` : ""}</div>`;
   }
   const opts = o => Object.entries(o).map(([k, v]) => [k, v.label, v.group]);
 
@@ -177,6 +177,8 @@
         ${fNum("Number of weapon motors", "weapon.motors", "", { step: 1, min: 1 })}
         ${fNum("Reduction (motor turns per weapon turn)", "weapon.ratio", ":1", { hint: "belt or friction drive; 1 = direct" })}
         ${fNum("Weapon ESC current limit", "weapon.esc_A", "A")}
+        ${fChk("ESC brakes the weapon when off", "weapon.brake", { def: true, hint: "drag brake: the motor slows the blade instead of letting it coast" })}
+        ${fNum("Brake current", "weapon.brake_A", "A", { adv: true, hint: "blank = the ESC current limit" })}
         ${fNum("Speed cap", "weapon.rpm_cap", "rpm", { hint: "0 = none; a governor or the throttle you run it at" })}
         ${fNum("Weapon MOI (overrides the shape)", "weapon.I_override", "kg m²", { adv: true, hint: "blank = from the shape, mass and diameter", ph: hasW ? RB.weaponI(Object.assign({}, W, { I_override: 0 })) : 0 })}
         ${fNum("Weapon motor kv", "weapon.adv.kv", "rpm/V", { adv: true, ph: WM.kv })}${fNum("Weapon motor resistance", "weapon.adv.R", "Ω", { adv: true, ph: WM.R })}
@@ -201,6 +203,7 @@
         ${fNum("Weapon throttle on Shift / Ctrl: 0 to full in", "controls.weapon_key_ramp", "s", { ph: 1, hint: "hold Shift to spin up, Ctrl to spin down; it stays where you let go. Space switches it off." })}
         ${fSel("Weapon button", "controls.weapon_mode", [["toggle", "Toggle on / off"], ["hold", "Hold to spin"]])}
         ${fNum("Weapon throttle when on", "controls.weapon_level", "%")}
+        ${fChk("Let go of the weapon after each hit", "controls.weapon_off_after_hit", { def: true, hint: "as drivers do: the blade stops pulling the robot round and the gyro calms down. Press the weapon again to spin back up" })}
       </div></details>
       <details id="padSec"><summary>Analog keyboard / controller map <span class="q">which key or stick is which</span></summary><div class="sec" id="padBody"></div></details>
       <details><summary>Arena and target <span class="q">where it drives</span></summary><div class="sec">
@@ -420,7 +423,7 @@
       const st = sim.state;
       topSpeed = Math.max(topSpeed, st.speed);
       if (!trail.length || sim.t - trail[trail.length - 1][3] > 0.02) { trail.push([st.xcog, st.ycog, st.speed, sim.t]); if (trail.length > 600) trail.shift(); }
-      while (sim.hits.length > seenHits) { const hh = sim.hits[seenHits++]; if (view) view.spark(hh.x, hh.y, hh.z); hitLabels.push({ ...hh, born: performance.now() }); }
+      while (sim.hits.length > seenHits) { const hh = sim.hits[seenHits++]; if (view) view.spark(hh.x, hh.y, hh.z); hitLabels.push({ ...hh, born: performance.now() }); if (S.controls.weapon_off_after_hit !== false) input.cutWeapon(); }
       if (sim.hits.length < seenHits) seenHits = sim.hits.length;
       if (!chart.length || sim.t - chart[chart.length - 1][0] > 0.02) {
         chart.push([sim.t, st.speed, st.ww * 30 / Math.PI, st.vbus || R.battery.V, st.Ib || 0]); if (chart.length > 400) chart.shift();
@@ -501,9 +504,9 @@
   }
   let keysMix = "";
   function keysHelp() {
-    const C = S.controls; if (keysMix === C.mix + C.weapon_mode) return; keysMix = C.mix + C.weapon_mode;
+    const C = S.controls; if (keysMix === C.mix + C.weapon_mode + C.weapon_off_after_hit) return; keysMix = C.mix + C.weapon_mode + C.weapon_off_after_hit;
     const drive = C.mix === "tank" ? `<b>W / S</b> left side<br><b>↑ / ↓</b> right side` : `<b>W / S ↑ ↓</b> throttle<br><b>A / D ← →</b> steer`;
-    $("keys").innerHTML = `${drive}<br><b>Shift / Ctrl</b> weapon throttle up / down<br><b>Space</b> weapon ${C.weapon_mode === "toggle" ? "on / off" : "(hold)"} · <b>Q</b> precision<br><b>R</b> reset · <b>P</b> pause<br><b>T</b> target · <b>C</b> camera<br><b>M</b> mouse as a joystick (Esc lets go)<br><b>drag</b> orbit · <b>wheel</b> zoom<br><b>[ ]</b> slow motion · <b>H</b> help`;
+    $("keys").innerHTML = `${drive}<br><b>Shift / Ctrl</b> weapon throttle up / down<br><b>Space</b> weapon ${C.weapon_mode === "toggle" ? "on / off" : "(hold)"}${C.weapon_off_after_hit !== false ? " (lets go after a hit)" : ""} · <b>Q</b> precision<br><b>R</b> reset · <b>P</b> pause<br><b>T</b> target · <b>C</b> camera<br><b>M</b> mouse as a joystick (Esc lets go)<br><b>drag</b> orbit · <b>wheel</b> zoom<br><b>[ ]</b> slow motion · <b>H</b> help`;
   }
 
   $("helpBox").innerHTML = `<h2 style="margin-top:0">RoborDriveSim</h2>

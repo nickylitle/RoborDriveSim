@@ -29,6 +29,7 @@
     weapon_key_ramp: 1.0,             // s for Shift to take the weapon throttle from 0 to full (Ctrl takes it down)
     weapon_mode: "toggle",            // toggle or hold (Space / A button)
     weapon_level: 100,                // % weapon throttle when on
+    weapon_off_after_hit: true,       // let go of the weapon after each hit, as drivers do (press again to spin back up)
     mouse_px: 250,                    // mouse stick: how far (pixels) the mouse moves for full stick
     mouse_spring: 0,                  // mouse stick: how fast it springs back to centre (per second; 0 = stays put)
     keys: { up: ["KeyW", "ArrowUp"], down: ["KeyS", "ArrowDown"], left: ["KeyA", "ArrowLeft"], right: ["KeyD", "ArrowRight"],
@@ -94,7 +95,7 @@
         target.addEventListener("keydown", e => {
           if (e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
           if (this.C.keys.weapon.includes(e.code) && !e.repeat) {
-            if (this.C.weapon_mode === "toggle") { this.weaponOn = !this.weaponOn; if (!this.weaponOn) this.wthr = 0; }
+            if (this.C.weapon_mode === "toggle") { this.weaponOn = !this.weaponOn; this.cut = false; if (!this.weaponOn) this.wthr = 0; }
             e.preventDefault();
           }
           if (/^(Arrow|Space)/.test(e.code) || e.ctrlKey) e.preventDefault();   // Ctrl+S, Ctrl+D...: Ctrl is the weapon throttle
@@ -121,7 +122,7 @@
         if (!locked()) return;
         e.preventDefault();
         if (e.button === 2) { this.mx = 0; this.my = 0; }
-        else if (e.button === 0) { this.weaponOn = !this.weaponOn; if (!this.weaponOn) this.wthr = 0; }
+        else if (e.button === 0) { this.weaponOn = !this.weaponOn; this.cut = false; if (!this.weaponOn) this.wthr = 0; }
       });
       el.addEventListener("contextmenu", e => { if (locked()) e.preventDefault(); });
       el.addEventListener("wheel", e => {
@@ -201,7 +202,7 @@
       }
       // weapon throttle on Shift (up) and Ctrl (down): it stays where you leave it
       const wk = dt / Math.max(C.weapon_key_ramp === undefined ? 1 : C.weapon_key_ramp, 0.05);
-      if (this.any(K.wup)) this.wthr = Math.min(1, this.wthr + wk);
+      if (this.any(K.wup) && !this.cut) this.wthr = Math.min(1, this.wthr + wk);
       if (this.any(K.wdown)) this.wthr = Math.max(0, this.wthr - wk);
       let weapon = (C.weapon_mode === "toggle" ? this.weaponOn : this.any(K.weapon)) ? C.weapon_level / 100 : 0;
       weapon = Math.max(weapon, this.wthr * C.weapon_level / 100);
@@ -229,16 +230,20 @@
         else { if (big(ax(1))) thr = -ax(1); if (big(ax(2))) steer = -ax(2); }
         const rt = bt(7); if (rt > 0.05) weapon = rt * C.weapon_level / 100;
         const edge = i => { const p = bt(i) > 0.5, was = this.padPrev[i]; this.padPrev[i] = p; return p && !was; };
-        if (edge(0)) { this.weaponOn = !this.weaponOn; if (!this.weaponOn) this.wthr = 0; }
+        if (edge(0)) { this.weaponOn = !this.weaponOn; this.cut = false; if (!this.weaponOn) this.wthr = 0; }
         if (edge(1)) this.events.push("PadReset");
         if (edge(9)) this.events.push("PadPause");
         if (C.weapon_mode === "toggle" && this.weaponOn && rt <= 0.05) weapon = C.weapon_level / 100;
         if (rt <= 0.05) weapon = Math.max(weapon, this.wthr * C.weapon_level / 100);
       }
+      // cut after a hit: held until every weapon control is let go, or the toggle is pressed again
+      if (this.cut) { if (weapon <= 0) this.cut = false; weapon = 0; }
       const [L, R] = mixer(C, curve(thr, C.thr) * prec, curve(steer, C.steer) * prec, curve(tL, C.thr) * prec, curve(tR, C.thr) * prec);
       this.lastRaw = { thr, steer, tL, tR };
       return { L, R, W: weapon, raw: { thr, steer, tL, tR } };
     }
+    // a hit landed: let go of the weapon (the ESC brake, if on, then slows it)
+    cutWeapon() { this.weaponOn = false; this.wthr = 0; this.cut = true; }
     takeEvents() { const e = this.events; this.events = []; return e; }
   }
 

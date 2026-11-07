@@ -104,5 +104,32 @@ for (const k of ["flapjack", "undercutter"]) for (const ang of [0, 20, -30]) {
   const lift = (z - R.cog.h) * 1000;
   check(t0 !== null && lift < 25 && Ek > 0.45 * E0, `${k} hits a box at ${ang} deg: stays down, blade keeps speed`, `lifts ${lift.toFixed(0)} mm in 30 ms, first tooth leaves the blade ${(100 * Ek / E0).toFixed(0)} % of its energy`);
 }
+// the ESC brake: switched off, the blade slows far faster than coasting
+{
+  const stopT = brake => { const S = clone(B.PRESETS.flapjack); S.weapon.brake = brake; const R = B.build(S), s = new P.Sim(R, { arena: 0 });
+    s.reset({ x: 0, y: 0, psi: 0 }); for (let i = 0; i < 20000; i++) s.step({ L: 0, R: 0, W: 1 });
+    const w0 = s.ww, t0 = s.t; while (s.ww > 0.5 * w0 && s.t - t0 < 30) s.step({ L: 0, R: 0, W: 0 }); return s.t - t0; };
+  const tb = stopT(true), tc = stopT(false);
+  check(tb < 1.0 && tc > 5 * tb, "the weapon ESC's brake halves the blade's speed far sooner than coasting", `${tb.toFixed(2)} s braked, ${tc.toFixed(1)} s coasting`);
+}
+// after a hit the driver lets go and the brake slows the blade: the robot is back flat within half a second
+for (const k of [0, 1, 4]) {
+  const R = B.build(clone(B.PRESETS.flapjack)), wall = k === 4;
+  const s = new P.Sim(R, { arena: 2.4384, ceiling: 1.2, target: wall ? null : { x: 0, y: 0, psi: 0.3 * k, m: 1.361, a: 0.12, b: 0.12, c: 0.06, mu: 0.3 } });
+  s.reset(wall ? { x: 0, y: 0.3, psi: Math.PI / 2 } : { x: -0.12 + 0.06 * k, y: -0.6, psi: Math.PI / 2 });
+  for (let i = 0; i < 40000 && s.ww < 0.95 * 1257; i++) s.step({ L: 0, R: 0, W: 1 });
+  const t1 = s.t; let first = null, calm = null, settled = null;
+  for (let i = 0; i < 30000 && settled === null; i++) {
+    const go = s.t > t1 + 0.1 && (first === null || s.t < first + 0.05) ? 0.6 : 0;
+    if (first !== null && s.t > first + 0.03) s.tg = null;
+    s.step({ L: go, R: go, W: first === null ? 1 : 0 });
+    if (first === null && (s.hits.length || s.state.bodyHit)) first = s.t;
+    if (first !== null) {
+      const up = P.qrot(s.q, [0, 0, 1]), tilt = Math.acos(Math.min(1, up[2])) * 180 / Math.PI;
+      if (s.state.z < 0.003 && tilt < 2) { if (calm === null) calm = s.t; if (s.t - calm > 0.2) settled = calm - first; } else calm = null;
+    }
+  }
+  check(settled !== null && settled < 0.5, `Flapjack ${wall ? "into the wall" : "hits the box (" + k + ")"}, weapon let go: flat again`, settled === null ? "never" : `${settled.toFixed(2)} s`);
+}
 console.log(`\n${n - fails} of ${n} passed`);
 process.exit(fails ? 1 : 0);
