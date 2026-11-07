@@ -322,7 +322,7 @@
   }
   // Ctrl is the weapon throttle, and Ctrl+W (close tab) cannot be blocked by a page: ask before leaving instead
   window.addEventListener("beforeunload", e => { e.preventDefault(); e.returnValue = ""; });
-  function doReset() { if (sim) sim.reset(); if (view) { view.camYaw = null; view.target(sim.tg); } trail = []; chart = []; tele = []; topSpeed = 0; matchT0 = 0; input.weaponOn = false; input.wthr = 0; }
+  function doReset() { if (sim) sim.reset(); if (view) { view.camYaw = null; view.target(sim.tg); } trail = []; chart = []; tele = []; topSpeed = 0; matchT0 = 0; lastHit = null; input.weaponOn = false; input.wthr = 0; }
   function togglePause() { paused = !paused; syncButtons(); }
   let flashT = 0;
   function flash(t, sub) { const m = $("msg"); m.innerHTML = t + (sub ? `<small>${sub}</small>` : ""); m.hidden = false; flashT = performance.now() + 2200; }
@@ -424,7 +424,13 @@
       const st = sim.state;
       topSpeed = Math.max(topSpeed, st.speed);
       if (!trail.length || sim.t - trail[trail.length - 1][3] > 0.02) { trail.push([st.xcog, st.ycog, st.speed, sim.t]); if (trail.length > 600) trail.shift(); }
-      while (sim.hits.length > seenHits) { const hh = sim.hits[seenHits++]; if (view) view.spark(hh.x, hh.y, hh.z); hitLabels.push({ ...hh, born: performance.now() }); if (S.controls.weapon_off_after_hit !== false) input.cutWeapon(); }
+      while (sim.hits.length > seenHits) {
+        const hh = sim.hits[seenHits++]; if (view) view.spark(hh.x, hh.y, hh.z);
+        // teeth landing in quick succession are one hit: their energies add (a gap over HIT_GAP starts a new one)
+        if (lastHit && hh.t >= lastHit.tEnd && hh.t - lastHit.tEnd <= HIT_GAP) { lastHit.dE += hh.dE; lastHit.J += hh.J; lastHit.n++; lastHit.tEnd = hh.t; lastHit.born = performance.now(); }
+        else { lastHit = { ...hh, n: 1, tEnd: hh.t, born: performance.now() }; hitLabels.push(lastHit); }
+        if (S.controls.weapon_off_after_hit !== false) input.cutWeapon();
+      }
       if (sim.hits.length < seenHits) seenHits = sim.hits.length;
       if (!chart.length || sim.t - chart[chart.length - 1][0] > 0.02) {
         chart.push([sim.t, st.speed, st.ww * 30 / Math.PI, st.vbus || R.battery.V, st.Ib || 0]); if (chart.length > 400) chart.shift();
@@ -436,7 +442,8 @@
     if (flashT && now > flashT) { $("msg").hidden = true; flashT = 0; }
   }
 
-  let simDt = 0, seenHits = 0; const hitLabels = [];
+  let simDt = 0, seenHits = 0, lastHit = null; const hitLabels = [];
+  const HIT_GAP = 0.05;                               // s between teeth that still counts as the same hit
   function draw(u, dt) {
     if (!sim || !view) return;
     const st = sim.state;
@@ -449,7 +456,7 @@
     for (const L of hitLabels) {
       const age = (now - L.born) / 1000; if (age > 1.6) continue;
       const [x, y, ok] = view.project(L.x, L.y, L.z + 0.05 + 0.06 * age, box.width, box.height);
-      if (ok) html += `<div class="hitl" style="left:${x}px;top:${y}px;opacity:${1 - age / 1.6}">${L.dE.toFixed(0)} J</div>`;
+      if (ok) html += `<div class="hitl" style="left:${x}px;top:${y}px;opacity:${1 - age / 1.6}">${L.dE.toFixed(0)} J${L.n > 1 ? ` <small>(${L.n} teeth)</small>` : ""}</div>`;
     }
     while (hitLabels.length && (now - hitLabels[0].born) > 1600) hitLabels.shift();
     lay.innerHTML = html;
@@ -474,7 +481,7 @@
       <hr><div class="row"><span class="k">pack</span><span>${(st.vbus || R.battery.V).toFixed(1)} V · ${(st.Ib || 0).toFixed(1)} A</span></div>
       <div class="row"><span class="k">used</span><span>${used.toFixed(0)} of ${cap} mAh</span></div>
       ${lifted.length ? `<div class="row" style="color:var(--amber)"><span>off the floor</span><span>${lifted.join(", ")}</span></div>` : ""}
-      ${sim.hits.length ? `<div class="row"><span class="k">last hit</span><span>${sim.hits[sim.hits.length - 1].dE.toFixed(0)} J</span></div>` : ""}
+      ${lastHit ? `<div class="row"><span class="k">last hit</span><span>${lastHit.dE.toFixed(0)} J${lastHit.n > 1 ? ` · ${lastHit.n} teeth` : ""}</span></div>` : ""}
       ${paused ? `<div class="row" style="color:var(--amber)"><span>PAUSED</span><span>P to go</span></div>` : ""}
       ${timeScale !== 1 ? `<div class="row" style="color:var(--blue)"><span>slow motion</span><span>${timeScale}x</span></div>` : ""}`;
   }
