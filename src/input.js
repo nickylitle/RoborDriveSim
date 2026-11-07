@@ -43,7 +43,7 @@
   }
   function mixer(C, thr, steer, tankL, tankR) {
     let L, R;
-    if (C.mix === "tank") { L = tankL; R = tankR; }
+    if (C.mix === "tank") { L = tankL - steer; R = tankR + steer; }   // A / D (or a steering stick) still turn it
     else {
       const cut = 1 - (1 - (C.steer_at_speed === undefined ? 100 : C.steer_at_speed) / 100) * Math.abs(thr);
       steer *= cut;
@@ -191,6 +191,7 @@
         if (rt <= 0.05) weapon = Math.max(weapon, this.wthr * C.weapon_level / 100);
       }
       const [L, R] = mixer(C, curve(thr, C.thr) * prec, curve(steer, C.steer) * prec, curve(tL, C.thr) * prec, curve(tR, C.thr) * prec);
+      this.lastRaw = { thr, steer, tL, tR };
       return { L, R, W: weapon, raw: { thr, steer, tL, tR } };
     }
     takeEvents() { const e = this.events; this.events = []; return e; }

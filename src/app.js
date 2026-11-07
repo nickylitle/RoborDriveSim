@@ -339,6 +339,7 @@
         "<b>No controller seen.</b> Turn on your keyboard's gamepad mode (Wootility: Xbox controller or classic controller; Razer Synapse: analog / gamepad keys; Keychron Launcher: gamepad), then press any key."}<br>
         Browsers cannot read how far a key is pressed directly; in gamepad mode the keyboard shows up as a controller, and that they can read.
         Press <b>Learn</b>, then press that key all the way and let go.</div>
+      <div class="hint" id="padLive" style="font-family:var(--mono);font-size:11px;margin:4px 0 8px"></div>
       <table class="t" id="padTbl"><tr><th>Control</th><th>Mapped to</th><th style="width:120px">Now</th><th></th></tr>
       ${rows.map(([ch, lab]) => `<tr><td>${lab}</td><td style="font-family:var(--mono);font-size:11px" id="padSrc_${ch}">${input.learning && input.learning.ch === ch ? "press it fully, then let go…" : srcText(input.padmap && input.padmap[ch])}</td>
         <td><div style="height:8px;background:var(--panel3);border-radius:4px;overflow:hidden"><div id="padBar_${ch}" style="height:100%;width:0;background:var(--blue)"></div></div></td>
@@ -357,6 +358,14 @@
     const gp = input.connectedPad(), id = gp ? gp.id : null;
     if (id !== padSeen) { padSeen = id; renderPad(); }
     if (!$("padTbl") || !$("padSec").open) return;
+    const lv = $("padLive");                          // what the sim hears, live: to see why a key does nothing
+    if (lv) {
+      const ax = gp ? Array.from(gp.axes).map((v, i) => `${i}:${v.toFixed(2)}`).join("  ") : "-";
+      const bt = gp ? gp.buttons.map((b, i) => (b.value || (b.pressed ? 1 : 0)) > 0.02 ? `${i}:${(b.value || 1).toFixed(2)}` : null).filter(Boolean).join("  ") || "none" : "-";
+      const rw = input.lastRaw || {};
+      lv.innerHTML = `controller axes ${ax}<br>buttons pressed ${bt}<br>keys held ${[...input.down].join(" ") || "none"}<br>` +
+        `sim hears: throttle ${(rw.thr || 0).toFixed(2)}, steering ${(rw.steer || 0).toFixed(2)} (mix: ${S.controls.mix})`;
+    }
     const v = input.padValues();
     for (const ch in v) { const el = $("padBar_" + ch); if (el) el.style.width = ((v[ch] || 0) * 100).toFixed(0) + "%"; }
   }
