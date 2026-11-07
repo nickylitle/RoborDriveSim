@@ -90,6 +90,11 @@ published free speed.
 
 Ctrl+W closes a browser tab and no page can block it, so the sim asks "Leave site?" first. Click **Cancel** to keep driving.
 
+**Mouse as a joystick:** press **M** (or the **Mouse** button). The mouse is captured and moves a stick (shown bottom
+left): up / down is throttle, left / right steering, and it stays where you leave it like a held stick (Setup → Driving
+curves: travel for full stick, and an optional spring back to centre). Right click centres it, the wheel is the weapon
+throttle (10 % a notch), left click switches the weapon on / off. **Esc** lets the mouse go.
+
 **Analog keyboards** (Wooting, Razer Huntsman V3 Pro, Keychron HE and similar): browsers cannot read how far a key is
 pressed, but in the keyboard's gamepad mode (Wootility: Xbox or classic controller; Razer Synapse; Keychron Launcher)
 it shows up as a controller, which they can. Turn that on, then in **Setup → Analog keyboard / controller map** press

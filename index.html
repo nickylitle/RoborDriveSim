@@ -42,6 +42,7 @@ input[type=checkbox]{accent-color:var(--red)}
 #chart{left:12px;right:12px;bottom:12px;height:120px;padding:0}
 #chart canvas{width:100%;height:100%;display:block}
 #keys{right:12px;bottom:146px;color:var(--ink2);font-size:11px;line-height:1.6}
+#mstick{left:12px;bottom:146px;color:var(--ink2);font-size:10px;text-align:center}
 #keys b{color:var(--ink);display:inline-block;min-width:64px}
 #msg{left:50%;top:40%;transform:translate(-50%,-50%);font:600 16px var(--sans);padding:14px 20px;text-align:center}
 #msg small{display:block;font:12px var(--sans);color:var(--ink2);margin-top:6px}
@@ -88,6 +89,7 @@ kbd{font:11px var(--mono);background:var(--panel3);border:1px solid var(--edge);
   <button id="bReset" title="Back to the start (R)">Reset</button>
   <button id="bPause" title="Pause (P)">Pause</button>
   <button id="bTarget" title="A box to push and hit (T)">Target</button>
+  <button id="bMouse" title="Drive with the mouse as a joystick (M); Esc lets go">Mouse</button>
   <button id="bFollow" title="Camera: chase, top, whole arena, orbit (C). Drag to orbit, wheel to zoom">Camera</button>
   <select id="speedSel" title="Time scale ([ and ])"><option value="1">1x</option><option value="0.5">0.5x</option><option value="0.25">0.25x</option><option value="0.1">0.1x</option></select>
   <div class="sp"></div>
@@ -100,6 +102,7 @@ kbd{font:11px var(--mono);background:var(--panel3);border:1px solid var(--edge);
   <div id="hud" class="hud"></div>
   <div id="bars" class="hud"></div>
   <div id="keys" class="hud"></div>
+  <div id="mstick" class="hud" hidden><svg viewBox="-1.2 -1.2 2.4 2.4" width="96" height="96"><rect x="-1" y="-1" width="2" height="2" rx="0.12" fill="none" stroke="currentColor" stroke-opacity="0.35" stroke-width="0.04"/><line x1="-1" y1="0" x2="1" y2="0" stroke="currentColor" stroke-opacity="0.2" stroke-width="0.03"/><line x1="0" y1="-1" x2="0" y2="1" stroke="currentColor" stroke-opacity="0.2" stroke-width="0.03"/><circle id="mdot" cx="0" cy="0" r="0.13" fill="#e5383b"/></svg><div>mouse stick · right click centres · Esc</div></div>
   <div id="chart" class="hud"><canvas id="chartCv"></canvas></div>
   <div id="msg" class="hud" hidden></div>
   <div id="labels"></div>

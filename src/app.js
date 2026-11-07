@@ -19,6 +19,7 @@
   const CAMS = ["chase", "top", "arena", "orbit"];
   let trail = [], chart = [], tele = [], topSpeed = 0, matchT0 = 0, errorText = "";
   const input = new IN.Input(window);
+  input.attachMouse(document.getElementById("cv"));
   // an analog keyboard (or any controller laid out its own way): its learned map belongs to this computer, not a robot
   const padStore = store.get("rds.padmap", null);
   if (padStore) { input.padmap = padStore.map || null; input.padKeysOff = padStore.keysOff !== false; }
@@ -194,6 +195,8 @@
         ${fChk("Steering flips when backing up", "controls.invert_reverse")}
         ${fChk("Invert the controls when it is upside down", "controls.auto_invert", { hint: "like flipping your transmitter's invert switch the moment it lands upside down" })}
         ${fNum("Key ramp (keyboard)", "controls.ramp", "s", { hint: "how long a held key takes to reach full" })}
+        ${fNum("Mouse stick: mouse travel for full stick", "controls.mouse_px", "px", { ph: 250, hint: "M takes the mouse as a joystick (Esc lets go): up / down throttle, left / right steering; right click centres it, the wheel is the weapon throttle, left click the weapon on / off" })}
+        ${fNum("Mouse stick springs back to centre", "controls.mouse_spring", "/s", { ph: 0, hint: "0 = it stays where you leave it, like a held stick; 3 = most of the way back in a third of a second" })}
         ${fNum("Precision (Q held)", "controls.precision", "%")}
         ${fNum("Weapon throttle on Shift / Ctrl: 0 to full in", "controls.weapon_key_ramp", "s", { ph: 1, hint: "hold Shift to spin up, Ctrl to spin down; it stays where you let go. Space switches it off." })}
         ${fSel("Weapon button", "controls.weapon_mode", [["toggle", "Toggle on / off"], ["hold", "Hold to spin"]])}
@@ -297,6 +300,7 @@
   // ------------------------------------------------------------------ top bar
   $("bReset").onclick = () => doReset();
   $("bPause").onclick = () => togglePause();
+  $("bMouse").onclick = () => input.toggleMouse();
   $("bTarget").onclick = () => { env.target = !env.target; store.set("rds.env", env); rebuild(true); syncButtons(); };
   $("bFollow").onclick = () => { if (!view) return; view.mode = CAMS[(CAMS.indexOf(view.mode) + 1) % CAMS.length]; syncButtons(); };
   $("speedSel").onchange = e => { timeScale = +e.target.value; };
@@ -388,6 +392,7 @@
       if (ev === "KeyR" || ev === "PadReset") doReset();
       else if (ev === "KeyP" || ev === "PadPause") togglePause();
       else if (ev === "KeyT") $("bTarget").click();
+      else if (ev === "KeyM") input.toggleMouse();
       else if (ev === "KeyC") $("bFollow").click();
       else if (ev === "KeyH") $("bHelp").click();
       else if (ev === "BracketLeft" || ev === "BracketRight") {
@@ -397,6 +402,9 @@
     }
     padTick();
     let u = input.read(dt);
+    const ml = input.mouseLocked();                     // the mouse stick, shown while it drives
+    $("mstick").hidden = !ml; $("bMouse").classList.toggle("on", ml);
+    if (ml) { const d = $("mdot"); d.setAttribute("cx", input.mx.toFixed(3)); d.setAttribute("cy", (-input.my).toFixed(3)); }
     if (sim && S.controls.auto_invert !== false && sim.state.upsideDown) u = { L: -u.R, R: -u.L, W: u.W, raw: u.raw };
     $("padInfo").textContent = input.pad ? (input.padmap ? "mapped: " : "controller: ") + input.pad.slice(0, 34) : "no controller (keyboard)";
     if (sim && !paused) {
@@ -495,11 +503,12 @@
   function keysHelp() {
     const C = S.controls; if (keysMix === C.mix + C.weapon_mode) return; keysMix = C.mix + C.weapon_mode;
     const drive = C.mix === "tank" ? `<b>W / S</b> left side<br><b>↑ / ↓</b> right side` : `<b>W / S ↑ ↓</b> throttle<br><b>A / D ← →</b> steer`;
-    $("keys").innerHTML = `${drive}<br><b>Shift / Ctrl</b> weapon throttle up / down<br><b>Space</b> weapon ${C.weapon_mode === "toggle" ? "on / off" : "(hold)"} · <b>Q</b> precision<br><b>R</b> reset · <b>P</b> pause<br><b>T</b> target · <b>C</b> camera<br><b>drag</b> orbit · <b>wheel</b> zoom<br><b>[ ]</b> slow motion · <b>H</b> help`;
+    $("keys").innerHTML = `${drive}<br><b>Shift / Ctrl</b> weapon throttle up / down<br><b>Space</b> weapon ${C.weapon_mode === "toggle" ? "on / off" : "(hold)"} · <b>Q</b> precision<br><b>R</b> reset · <b>P</b> pause<br><b>T</b> target · <b>C</b> camera<br><b>M</b> mouse as a joystick (Esc lets go)<br><b>drag</b> orbit · <b>wheel</b> zoom<br><b>[ ]</b> slow motion · <b>H</b> help`;
   }
 
   $("helpBox").innerHTML = `<h2 style="margin-top:0">RoborDriveSim</h2>
     <p>Drive your combat robot with its real weight, COG, wheels and weapon. Set it up under <b>Setup</b> (or start from an archetype), then drive with the keyboard or a game controller.</p>
+    <h3>Mouse as a joystick</h3><p>Press <kbd>M</kbd> (or <b>Mouse</b>): the mouse is captured and moves a stick, shown bottom left. Up / down is throttle, left / right steering; it stays where you leave it (Setup → Driving curves can make it spring back). Right click centres it, the wheel is the weapon throttle (10 % a notch), left click switches the weapon on / off. <kbd>Esc</kbd> lets the mouse go. Keys still work and win while held.</p>
     <h3>Keyboard</h3><p><kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd> throttle, <kbd>A</kbd><kbd>D</kbd> or <kbd>←</kbd><kbd>→</kbd> steer (tank mix: <kbd>W</kbd><kbd>S</kbd> left side, <kbd>↑</kbd><kbd>↓</kbd> right side). <kbd>Shift</kbd> / <kbd>Ctrl</kbd> held: weapon throttle up / down (it stays where you let go). <kbd>Space</kbd> weapon full on / off (off also zeroes the throttle). <kbd>Q</kbd> precision. Ctrl+W would close the tab, so the page asks before leaving. <kbd>R</kbd> reset, <kbd>P</kbd> pause, <kbd>T</kbd> target box, <kbd>C</kbd> camera (chase, top, whole arena, orbit; drag to orbit, wheel to zoom), <kbd>[</kbd><kbd>]</kbd> slow motion, <kbd>Esc</kbd> closes panels.</p>
     <h3>Game controller</h3><p>Plug it in and press a button (Chrome or Edge). Arcade: left stick up/down throttle, right stick left/right steering. Single: the left stick does both. Tank: one stick per side. Right trigger: weapon throttle. A / Cross: weapon on or off. B / Circle: reset. Start: pause.</p>
     <h3>Analog keyboard</h3><p>Wooting, Razer Huntsman V3 Pro, Keychron HE and similar: turn on the keyboard's gamepad mode in its own app (Wootility, Synapse, Launcher), then in <b>Setup → Analog keyboard / controller map</b> press <b>Learn</b> beside each control and press that key all the way. How far you press is how much throttle or steering you get. Keep "ignore ordinary key presses" on, so the key's digital press does not override its depth.</p>

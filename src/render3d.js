@@ -24,14 +24,15 @@
     }
     _drag(cv) {
       let down = null;
-      cv.addEventListener("pointerdown", e => { down = [e.clientX, e.clientY, this.orbit.az, this.orbit.el]; cv.setPointerCapture(e.pointerId); });
+      const driving = () => document.pointerLockElement === cv;          // the mouse is the stick: no orbit or zoom
+      cv.addEventListener("pointerdown", e => { if (driving()) return; down = [e.clientX, e.clientY, this.orbit.az, this.orbit.el]; cv.setPointerCapture(e.pointerId); });
       cv.addEventListener("pointermove", e => {
         if (!down) return;
         if (this.mode !== "orbit") { this.mode = "orbit"; this.onMode && this.onMode(this.mode); }
         this.orbit.az = down[2] - (e.clientX - down[0]) * 0.008; this.orbit.el = Math.max(0.05, Math.min(1.5, down[3] + (e.clientY - down[1]) * 0.006));
       });
       cv.addEventListener("pointerup", () => { down = null; });
-      cv.addEventListener("wheel", e => { e.preventDefault(); this.dist = Math.max(0.2, Math.min(6, this.dist * Math.exp(e.deltaY * 0.0012))); }, { passive: false });
+      cv.addEventListener("wheel", e => { if (driving()) return; e.preventDefault(); this.dist = Math.max(0.2, Math.min(6, this.dist * Math.exp(e.deltaY * 0.0012))); }, { passive: false });
     }
     resize(w, h) { this.r.setSize(w, h, false); this.cam.aspect = w / h; this.cam.updateProjectionMatrix(); }
 

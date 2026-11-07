@@ -8,6 +8,9 @@
  *   single: left stick does both
  *   tank:   left stick up/down = left side, right stick up/down = right side
  *   right trigger = weapon throttle (analog); A / Cross toggles the weapon on; B / Circle resets; Start pauses
+ * Mouse as a joystick: M (or the Mouse button) captures the mouse on the 3D view (Esc lets it go); moving it moves a virtual stick
+ * (up / down = throttle, left / right = steering) that stays where you leave it (or springs back, if set). Right click
+ * centres it; the wheel is the weapon throttle; left click switches the weapon on / off.
  * Analog keyboards (Wooting, Razer Huntsman V3 Pro, Keychron HE...) in their gamepad mode, or any controller laid out
  * differently: a learned map (padmap) says which stick or trigger each control is. Learn one by pressing the key:
  * whichever axis or button moves furthest from where it rested is it, read from its resting value to the value at a
@@ -26,6 +29,8 @@
     weapon_key_ramp: 1.0,             // s for Shift to take the weapon throttle from 0 to full (Ctrl takes it down)
     weapon_mode: "toggle",            // toggle or hold (Space / A button)
     weapon_level: 100,                // % weapon throttle when on
+    mouse_px: 250,                    // mouse stick: how far (pixels) the mouse moves for full stick
+    mouse_spring: 0,                  // mouse stick: how fast it springs back to centre (per second; 0 = stays put)
     keys: { up: ["KeyW", "ArrowUp"], down: ["KeyS", "ArrowDown"], left: ["KeyA", "ArrowLeft"], right: ["KeyD", "ArrowRight"],
             tankLup: ["KeyW"], tankLdown: ["KeyS"], tankRup: ["ArrowUp", "KeyI"], tankRdown: ["ArrowDown", "KeyK"],
             weapon: ["Space"], precision: ["KeyQ"], wup: ["ShiftLeft", "ShiftRight"], wdown: ["ControlLeft", "ControlRight"] },
@@ -83,6 +88,8 @@
       this.padKeysOff = true;           // while a learned map is in use, ignore the keyboard's own drive keys (analog
                                         // boards send both, and a digital key would read full the moment it actuates)
       this.learning = null;             // {ch, rest, best} while learning a control
+      this.mx = 0; this.my = 0;         // the mouse stick, -1..1 (x right, y forward)
+      this.mouseEl = null;
       if (target) {
         target.addEventListener("keydown", e => {
           if (e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
@@ -99,6 +106,37 @@
       }
     }
     any(list) { return list.some(k => this.down.has(k)); }
+    // the mouse as a joystick, on the 3D view's canvas
+    attachMouse(el) {
+      this.mouseEl = el;
+      const locked = () => document.pointerLockElement === el;
+      document.addEventListener("pointerlockchange", () => { if (!locked()) { this.mx = 0; this.my = 0; } });
+      document.addEventListener("mousemove", e => {
+        if (!locked()) return;
+        const px = Math.max(20, this.C.mouse_px || 250), cl = v => Math.max(-1, Math.min(1, v));
+        const lim = v => Math.max(-300, Math.min(300, v || 0));   // a glitched event (some systems jump) moves it no further
+        this.mx = cl(this.mx + lim(e.movementX) / px); this.my = cl(this.my - lim(e.movementY) / px);
+      });
+      el.addEventListener("mousedown", e => {
+        if (!locked()) return;
+        e.preventDefault();
+        if (e.button === 2) { this.mx = 0; this.my = 0; }
+        else if (e.button === 0) { this.weaponOn = !this.weaponOn; if (!this.weaponOn) this.wthr = 0; }
+      });
+      el.addEventListener("contextmenu", e => { if (locked()) e.preventDefault(); });
+      el.addEventListener("wheel", e => {
+        if (!locked()) return;
+        e.preventDefault();
+        this.wthr = Math.max(0, Math.min(1, this.wthr - Math.sign(e.deltaY) * 0.1));    // 10 % a notch
+      }, { passive: false });
+    }
+    // take the mouse (from a key press or a click: the browser needs one) or let it go
+    toggleMouse() {
+      const el = this.mouseEl; if (!el) return;
+      if (document.pointerLockElement === el) { document.exitPointerLock(); return; }
+      try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* not allowed here */ }
+    }
+    mouseLocked() { return !!this.mouseEl && typeof document !== "undefined" && document.pointerLockElement === this.mouseEl; }
     connectedPad() {
       const pads = typeof navigator !== "undefined" && navigator.getGamepads ? navigator.getGamepads() : [];
       return Array.from(pads || []).find(p => p && p.connected) || null;
@@ -154,6 +192,13 @@
       let steer = rampTo("steer", (this.any(K.left) ? 1 : 0) - (this.any(K.right) ? 1 : 0));
       let tL = rampTo("L", (this.any(K.tankLup) ? 1 : 0) - (this.any(K.tankLdown) ? 1 : 0));
       let tR = rampTo("R", (this.any(K.tankRup) ? 1 : 0) - (this.any(K.tankRdown) ? 1 : 0));
+      // the mouse stick: drives while captured, unless a drive key is held (the keys win)
+      if (this.mouseLocked()) {
+        const sp = C.mouse_spring || 0;
+        if (sp > 0) { const f = Math.max(0, 1 - sp * dt); this.mx *= f; this.my *= f; }
+        if (!this.any(K.up) && !this.any(K.down)) { thr = this.my; tL = this.my; tR = this.my; }
+        if (!this.any(K.left) && !this.any(K.right)) steer = -this.mx;
+      }
       // weapon throttle on Shift (up) and Ctrl (down): it stays where you leave it
       const wk = dt / Math.max(C.weapon_key_ramp === undefined ? 1 : C.weapon_key_ramp, 0.05);
       if (this.any(K.wup)) this.wthr = Math.min(1, this.wthr + wk);
