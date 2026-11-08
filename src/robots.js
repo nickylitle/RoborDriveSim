@@ -268,7 +268,9 @@
         return { x: mm(q.x), y: mm(q.y), z: r, r, w: mm(q.w || 16), driven: !!q.driven, side: q.side, J: 0.5 * mw * r * r };
       }),
       linked: !!S.linked, motorsPerSide: S.motors_per_side || 1,
-      skids: (S.skids || []).map(q => { const k = Object.assign({}, SKIDS[q.type] || SKIDS.steel, q.adv || {}); return { x: mm(q.x), y: mm(q.y), z: mm(q.gap || 0), muk: k.muk, mus: k.mus }; }),
+      skids: (S.skids || []).map(q => { const base = SKIDS[q.type] || SKIDS.steel, k = Object.assign({}, base, q.adv || {}); // a hand-set μ keeps the material's static-to-sliding ratio
+        if (q.adv && q.adv.muk !== undefined && q.adv.mus === undefined) k.mus = q.adv.muk * base.mus / base.muk;
+        return { x: mm(q.x), y: mm(q.y), z: mm(q.gap || 0), muk: k.muk, mus: k.mus }; }),
       tire: { muk: tire.muk, mus: tire.mus, sigp: tire.sigp, vmin: 0.05, crr: tire.crr },
       drive: { kv: da.kv || dm.kv, R: da.R || dm.R, G: da.G || (dm.tangent_d ? tangentRatio(S, dm) : dm.G), eta: da.eta || dm.eta, etab: da.eta || dm.eta,
                Jrot: da.Jrot || dm.Jrot, Imax: S.drive.esc_A, brake: S.drive.brake, vmax: S.drive.drive_V || 0 },

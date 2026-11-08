@@ -106,10 +106,11 @@
   }
   function skidRows() {
     if (!S.skids.length) return `<div class="note">No skids: the wheels carry all the weight.</div>`;
-    return `<table class="t"><tr><th>#</th><th>x mm</th><th>y mm</th><th title="how far above the floor it sits at rest: 0 touches; a little lets the wheels carry the robot">gap mm</th><th>material</th></tr>` +
+    return `<table class="t"><tr><th>#</th><th>x mm</th><th>y mm</th><th title="how far above the floor it sits at rest: 0 touches; a little lets the wheels carry the robot">gap mm</th><th>material</th><th title="sliding friction; blank = the material's value">μ</th></tr>` +
       S.skids.map((q, i) => `<tr><td>${i + 1}</td><td><input type="number" data-p="skids.${i}.x" value="${q.x}"></td><td><input type="number" data-p="skids.${i}.y" value="${q.y}"></td>
         <td><input type="number" data-p="skids.${i}.gap" value="${q.gap || 0}" style="width:50px"></td>
-        <td><select data-p="skids.${i}.type">${opts(RB.SKIDS).map(([k, l]) => `<option value="${k}"${k === q.type ? " selected" : ""}>${l}</option>`).join("")}</select></td></tr>`).join("") + `</table>`;
+        <td><select data-p="skids.${i}.type">${opts(RB.SKIDS).map(([k, l]) => `<option value="${k}"${k === q.type ? " selected" : ""}>${l}</option>`).join("")}</select></td>
+        <td><input type="number" step="0.01" min="0" data-p="skids.${i}.adv.muk" value="${q.adv && q.adv.muk !== undefined ? q.adv.muk : ""}" placeholder="${(RB.SKIDS[q.type] || RB.SKIDS.steel).muk}" style="width:60px"></td></tr>`).join("") + `</table>`;
   }
   function dirOpts(type) {
     return type === "horizontal" ? [[1, "counter-clockwise from above"], [-1, "clockwise from above"]] : [[1, "front of the weapon moves up (hits upward)"], [-1, "front moves down (hits downward)"]];
