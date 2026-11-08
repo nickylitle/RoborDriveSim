@@ -90,6 +90,12 @@ published free speed.
 
 Ctrl+W closes a browser tab and no page can block it, so the sim asks "Leave site?" first. Click **Cancel** to keep driving.
 
+**RC transmitter (EdgeTX / OpenTX, e.g. Radiomaster):** plug the radio in by USB and pick "USB Joystick (HID)". In
+Setup, open "Analog keyboard / controller map", choose the drive channels (steering + throttle mixed in the sim, or left +
+right already mixed on the radio), the weapon channel (-100 % off, +100 % full), tick "reversed" on any that run
+backwards, and press "Use the radio". Set the sim's rates to 100 % and expo to 0 % so the radio's own curves aren't
+applied twice.
+
 **After a hit:** by default the weapon lets go after each hit, as drivers do, and the weapon ESC's drag brake slows the
 blade. Kept spinning back up, the motor's reaction twists the chassis while the hit has it on one wheel, and the blade's
 gyro turns that twist into tilt: the robot wobbles on its edge for seconds. Let go and braked, it is flat again in 0.15 to

@@ -342,11 +342,23 @@
     const B = $("padBody"); if (!B) return;
     const gp = input.connectedPad(), tank = S.controls.mix === "tank";
     const rows = IN.PAD_CHANNELS.filter(([ch]) => tank || !ch.startsWith("tank"));    // tank: its own side channels too
+    const chOpts = Array.from({ length: 8 }, (_, i) => `<option value="${i + 1}">CH${i + 1}</option>`).join("");
     B.innerHTML = `
       <div class="hint" style="margin-bottom:6px">${gp ? `Seen: <b>${gp.id.replace(/</g, "&lt;").slice(0, 70)}</b>` :
         "<b>No controller seen.</b> Turn on your keyboard's gamepad mode (Wootility: Xbox controller or classic controller; Razer Synapse: analog / gamepad keys; Keychron Launcher: gamepad), then press any key."}<br>
         Browsers cannot read how far a key is pressed directly; in gamepad mode the keyboard shows up as a controller, and that they can read.
         Press <b>Learn</b>, then press that key all the way and let go.</div>
+      <div class="radio" style="border:1px solid var(--line, #333);border-radius:6px;padding:8px;margin:6px 0">
+        <b>RC transmitter</b> <span class="hint">(EdgeTX / OpenTX radio as a USB joystick: channel N is axis N-1)</span>
+        <div class="f"><label>Drive</label><select id="rdMode">
+          <option value="arcade">steering + throttle channels, mixed in the sim</option>
+          <option value="tank">left + right channels, already mixed on the radio</option></select></div>
+        <div class="f"><label id="rdALab">Steering channel</label><select id="rdA">${chOpts}</select> <label><input type="checkbox" id="rdArev"> reversed</label></div>
+        <div class="f"><label id="rdBLab">Throttle channel</label><select id="rdB">${chOpts}</select> <label><input type="checkbox" id="rdBrev"> reversed</label></div>
+        <div class="f"><label>Weapon channel</label><select id="rdW"><option value="0">none</option>${chOpts}</select> <label><input type="checkbox" id="rdWrev"> reversed</label>
+          <div class="hint">-100 % is off, +100 % is full (a switch or the throttle stick)</div></div>
+        <div class="f"><button id="rdUse" class="prim"${gp ? "" : " disabled"}>Use the radio</button></div>
+      </div>
       <div class="hint" id="padLive" style="font-family:var(--mono);font-size:11px;margin:4px 0 8px"></div>
       <table class="t" id="padTbl"><tr><th>Control</th><th>Mapped to</th><th style="width:120px">Now</th><th></th></tr>
       ${rows.map(([ch, lab]) => `<tr><td>${lab}</td><td style="font-family:var(--mono);font-size:11px" id="padSrc_${ch}">${input.learning && input.learning.ch === ch ? "press it fully, then let go…" : srcText(input.padmap && input.padmap[ch])}</td>
@@ -359,6 +371,24 @@
     B.querySelectorAll("[data-unmap]").forEach(b => b.onclick = () => { if (input.padmap) { delete input.padmap[b.dataset.unmap]; if (!Object.keys(input.padmap).length) input.padmap = null; } savePad(); renderPad(); });
     $("padKeysOff").onchange = e => { input.padKeysOff = e.target.checked; savePad(); };
     $("padClear").onclick = () => { input.padmap = null; input.learning = null; savePad(); renderPad(); };
+    // the radio: channels straight to controls, no learning
+    const rc = Object.assign({ mode: "arcade", a: 1, b: 2, w: 3, arev: false, brev: false, wrev: false }, store.get("rds.radio", {}));
+    const setLabels = () => { const t = $("rdMode").value === "tank"; $("rdALab").textContent = t ? "Left side channel" : "Steering channel"; $("rdBLab").textContent = t ? "Right side channel" : "Throttle channel"; };
+    $("rdMode").value = rc.mode; $("rdA").value = rc.a; $("rdB").value = rc.b; $("rdW").value = rc.w;
+    $("rdArev").checked = rc.arev; $("rdBrev").checked = rc.brev; $("rdWrev").checked = rc.wrev; setLabels();
+    $("rdMode").onchange = setLabels;
+    $("rdUse").onclick = () => {
+      const r = { mode: $("rdMode").value, a: +$("rdA").value, b: +$("rdB").value, w: +$("rdW").value, arev: $("rdArev").checked, brev: $("rdBrev").checked, wrev: $("rdWrev").checked };
+      store.set("rds.radio", r);
+      const pos = (ch, rev) => ({ a: ch - 1, rest: 0, full: rev ? -1 : 1 }), neg = (ch, rev) => ({ a: ch - 1, rest: 0, full: rev ? 1 : -1 });
+      const m = {};
+      if (r.mode === "tank") { m.tankLup = pos(r.a, r.arev); m.tankLdown = neg(r.a, r.arev); m.tankRup = pos(r.b, r.brev); m.tankRdown = neg(r.b, r.brev); }
+      else { m.right = pos(r.a, r.arev); m.left = neg(r.a, r.arev); m.fwd = pos(r.b, r.brev); m.back = neg(r.b, r.brev); }
+      if (r.w) m.weapon = { a: r.w - 1, rest: r.wrev ? 1 : -1, full: r.wrev ? -1 : 1 };
+      input.padmap = m; input.learning = null; savePad();
+      S.controls.mix = r.mode; changed(); renderSetup(); if ($("padSec")) $("padSec").open = true;
+      flash("Radio in use", r.mode === "tank" ? `CH${r.a} left, CH${r.b} right` + (r.w ? `, CH${r.w} weapon` : "") : `CH${r.a} steering, CH${r.b} throttle` + (r.w ? `, CH${r.w} weapon` : ""));
+    };
   }
   let padSeen = null;
   function padTick() {
@@ -368,11 +398,11 @@
     if (!$("padTbl") || !$("padSec").open) return;
     const lv = $("padLive");                          // what the sim hears, live: to see why a key does nothing
     if (lv) {
-      const ax = gp ? Array.from(gp.axes).map((v, i) => `${i}:${v.toFixed(2)}`).join("  ") : "-";
+      const ax = gp ? Array.from(gp.axes).map((v, i) => `${i} (CH${i + 1}) ${(v * 100).toFixed(0)}%`).join("  ") : "-";
       const bt = gp ? gp.buttons.map((b, i) => (b.value || (b.pressed ? 1 : 0)) > 0.02 ? `${i}:${(b.value || 1).toFixed(2)}` : null).filter(Boolean).join("  ") || "none" : "-";
       const rw = input.lastRaw || {};
       lv.innerHTML = `controller axes ${ax}<br>buttons pressed ${bt}<br>keys held ${[...input.down].join(" ") || "none"}<br>` +
-        `sim hears: throttle ${(rw.thr || 0).toFixed(2)}, steering ${(rw.steer || 0).toFixed(2)} (mix: ${S.controls.mix})`;
+        (S.controls.mix === "tank" ? `sim hears: left ${(rw.tL || 0).toFixed(2)}, right ${(rw.tR || 0).toFixed(2)} (mix: tank)` : `sim hears: throttle ${(rw.thr || 0).toFixed(2)}, steering ${(rw.steer || 0).toFixed(2)} (mix: ${S.controls.mix})`);
     }
     const v = input.padValues();
     for (const ch in v) { const el = $("padBar_" + ch); if (el) el.style.width = ((v[ch] || 0) * 100).toFixed(0) + "%"; }
