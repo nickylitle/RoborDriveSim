@@ -345,7 +345,16 @@
       out.weapon_energy_free = 0.5 * W.I * wtop * wtop;
       out.tip_speed_free = wtop * W.radius;
       // how far the blade's front reaches past the front of the body and wheels (mm); at or below 0 it can't hit
-      out.weapon_clear_mm = (W.x + W.radius - Math.max(...R.outline.map(p => p[0]))) * 1000;
+      // (the body, and any wheel in the blade's own lane; wheels to the side leave a gap an opponent fits into)
+      const front = W.x + W.radius, half = W.thick / 2 + 0.005;
+      const lane = R.wheels.filter(q => Math.abs(q.y - W.y) < q.w / 2 + half), side = R.wheels.filter(q => !lane.includes(q));
+      const reachOf = q => q.x + q.r;
+      out.weapon_clear_mm = (front - Math.max(...R.bodyOutline.map(p => p[0]), ...lane.map(reachOf))) * 1000;
+      if (side.some(q => reachOf(q) > front)) {
+        const L = side.filter(q => q.y > W.y), Rt = side.filter(q => q.y < W.y);
+        const gap = (L.length ? Math.min(...L.map(q => q.y - q.w / 2)) : Infinity) - (Rt.length ? Math.max(...Rt.map(q => q.y + q.w / 2)) : -Infinity);
+        out.weapon_between_wheels_mm = isFinite(gap) ? gap * 1000 : undefined;
+      }
     }
     return out;
   }
