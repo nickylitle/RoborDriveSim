@@ -22,20 +22,14 @@ Nothing to install, no internet needed: it is one page and plain JavaScript (thr
 Press **Setup**. It works in three steps:
 
 1. **Pick a robot:** click one of the stock robots (drawn from above).
-2. **Tune it:** a few sliders, each worked out into the real numbers for you:
+2. **Your hardware:** type in the real parts, and it works out the rest:
 
-| Knob | What it changes underneath |
+| You enter | It works out |
 |---|---|
-| Weight | the mass (3 lb class: 1361 g) |
-| Top speed | the drive gearing (or a tangent drive's roller size) |
-| Tires | the grip curve (urethane, silicone, foam, TPU, rubber, urethane + steel cleats) |
-| Weight on the wheels | the COG, slid between the wheels and the skids (robots with skids) |
-| Battery | 3S, 4S or 6S |
-| Weapon diameter, mass | the blade (a measured weapon MOI scales with them) |
-| Weapon speed | a speed cap; all the way right is the motor's free speed. Shows the energy and tip speed |
-| Spin-up time | the weapon ESC's current limit, solved so it reaches 90 % speed in that time |
-| Spin direction | which way the weapon turns |
+| Drive motor (catalog), drive ESC limit, battery cells and mAh, wheel diameter, wheel mass, wheel MOI (from CAD, or blank for a solid disc), tires, robot weight, weight on the wheels | top speed, acceleration, grip, battery use |
+| Weapon motor (catalog), number of motors, reduction, weapon ESC limit, speed limit (the throttle you run), blade diameter, mass, shape, MOI (from CAD, or blank), teeth, spin direction | weapon speed, stored energy, tip speed, spin-up time |
 
+   "What that gives you" under the inputs shows the results as you type.
    **Back to stock** undoes every knob. Your controls stay when you switch robots.
 3. **Controls and arena:** driving curves, the controller / radio map, the arena and the target box.
 

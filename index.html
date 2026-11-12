@@ -75,7 +75,9 @@ h3.step .mini{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:
 .f.knob{display:grid;grid-template-columns:minmax(100px,140px) minmax(0,1fr) 180px;align-items:center;gap:2px 10px;margin:8px 0}
 .knob>label{color:var(--ink2)} .knob input[type=range]{width:100%;accent-color:var(--red);margin:0}
 .knob output{font:11.5px var(--mono);color:var(--ink);line-height:1.3}
-.knob select{grid-column:2/4;width:100%} .knob .hint{grid-column:2/-1;margin:0}
+.knob select{grid-column:2/4;width:100%} .knob.num input{width:100%} .knob.num .u{font:11.5px var(--mono);color:var(--ink3)}
+.khead{font:600 11px var(--sans);color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 2px;border-bottom:1px solid var(--edge);padding-bottom:3px}
+table.derived td:first-child{color:var(--ink2);width:45%} .knob .hint{grid-column:2/-1;margin:0}
 @media (max-width:480px){.f.knob{grid-template-columns:1fr}.knob select,.knob .hint{grid-column:1}}
 table.t{border-collapse:collapse;width:100%;margin:6px 0;font-size:12px}
 table.t th{color:var(--ink3);font-weight:400;text-align:left;padding:2px 4px}

@@ -279,7 +279,9 @@
       cog: { x: mm(S.cog.x), y: mm(S.cog.y), h: mm(S.cog.h) },
       wheels: S.wheels.map(q => {
         const r = mm(q.d / 2), mw = (q.mass_g || 25) / 1000;
-        return { x: mm(q.x), y: mm(q.y), z: r, r, w: mm(q.w || 16), driven: !!q.driven, side: q.side, J: 0.5 * mw * r * r };
+        // spin inertia: your CAD's value (S.wheel_moi_gmm2, each wheel with its tire and hub) or a solid disc of its mass
+        const J = S.wheel_moi_gmm2 > 0 ? S.wheel_moi_gmm2 * 1e-9 : 0.5 * mw * r * r;
+        return { x: mm(q.x), y: mm(q.y), z: r, r, w: mm(q.w || 16), driven: !!q.driven, side: q.side, J };
       }),
       linked: !!S.linked, motorsPerSide: S.motors_per_side || 1,
       skids: (S.skids || []).map(q => { const base = SKIDS[q.type] || SKIDS.steel, k = Object.assign({}, base, q.adv || {}); // a hand-set μ keeps the material's static-to-sliding ratio

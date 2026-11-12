@@ -130,7 +130,7 @@
       <div class="cards">${presetCards()}</div>
       <canvas id="view" width="1040" height="600"></canvas>
       <div class="out" id="sum"></div>
-      <h3 class="step">2 · Tune it <button id="bStock" class="mini" title="Put every setting back to this robot's stock values (keeps your controls)">Back to stock</button></h3>
+      <h3 class="step">2 · Your hardware <button id="bStock" class="mini" title="Put every setting back to this robot's stock values (keeps your controls)">Back to stock</button></h3>
       <div class="note">${S.note || ""}</div>
       <div id="tune">${tuneRows()}</div>
       <h3 class="step">3 · Controls and arena</h3>
@@ -296,55 +296,96 @@
   function knobs() {
     const sm = (() => { try { return RB.summary(S); } catch (e) { return {}; } })();
     const W = S.weapon || {}, hasW = W.type && W.type !== "none";
-    const DM = RB.DRIVE_MOTORS[S.drive.motor] || RB.DRIVE_MOTORS.compact1806;
     const driven = S.wheels.filter(q => q.driven), xw = driven.reduce((a, q) => a + q.x, 0) / Math.max(driven.length, 1);
     const xs = S.skids.length ? S.skids.reduce((a, q) => a + q.x, 0) / S.skids.length : null;
-    const free = sm.weapon_rpm_free || 0, wTop = Math.min(free, W.rpm_cap || 1e9) * Math.PI / 30;
+    const main = S.wheels.find(q => q.driven) || S.wheels[0];
+    const discJ = q => 0.5 * (q.mass_g || 25) * Math.pow(q.d / 2, 2);            // g mm^2
     const K = [
-      { id: "mass", label: "Weight", unit: "g", min: 900, max: 1361, step: 1, get: () => S.mass_g, set: v => { S.mass_g = v; }, hint: "3 lb class: 1361 g" },
-      { id: "speed", label: "Top speed", unit: "m/s", min: 1, max: 10, step: 0.1, get: () => sm.top_speed, fmt: v => `${v.toFixed(1)} m/s · ${(v * 2.237).toFixed(1)} mph`,
-        set: v => { const top = RB.summary(S).top_speed; if (!(top > 0)) return;
-          if (DM.tangent_d) S.drive.roller_d = (S.drive.roller_d || DM.tangent_d) * v / top;
-          else { S.drive.adv = S.drive.adv || {}; S.drive.adv.G = ((S.drive.adv.G) || DM.G) * top / v; } },
-        hint: "sets the gearing; more speed, less push and slower acceleration" },
+      { head: "Drive" },
+      { id: "dmotor", label: "Drive motor", sel: opts(RB.DRIVE_MOTORS), get: () => S.drive.motor,
+        set: v => { S.drive.motor = v; if (S.drive.adv) delete S.drive.adv.G; delete S.drive.roller_d; } },
+      { id: "desc", label: "Drive ESC current limit", unit: "A", num: true, get: () => S.drive.esc_A, set: v => { S.drive.esc_A = v; } },
+      { id: "cells", label: "Battery", sel: [[2, "2S"], [3, "3S"], [4, "4S"], [5, "5S"], [6, "6S"]], num: true, get: () => S.battery.cells, set: v => { S.battery.cells = v; } },
+      { id: "mah", label: "Battery capacity", unit: "mAh", num: true, get: () => S.battery.mAh, set: v => { S.battery.mAh = v; } },
+      { id: "wheeld", label: "Wheel diameter", unit: "mm", num: true, get: () => main.d,
+        set: v => { const k = v / main.d; S.wheels.forEach(q => { q.d = +(q.d * k).toFixed(1); }); } },
+      { id: "wheelm", label: "Wheel mass (each, with tire and hub)", unit: "g", num: true, get: () => main.mass_g || 25,
+        set: v => { S.wheels.forEach(q => { q.mass_g = v; }); } },
+      { id: "wheelJ", label: "Wheel MOI (each, about its axle)", unit: "g mm²", num: true, blank: true, get: () => S.wheel_moi_gmm2,
+        ph: () => Math.round(discJ(main)), set: v => { if (v > 0) S.wheel_moi_gmm2 = v; else delete S.wheel_moi_gmm2; },
+        hint: "from CAD; blank = a solid disc of that mass. Heavy wheels launch slower and kick the chassis when they spin up" },
       { id: "tire", label: "Tires", sel: Object.entries(RB.TIRES).map(([k, t]) => [k, t.label]), get: () => S.tire, set: v => { S.tire = v; delete S.tire_adv; } },
+      { id: "mass", label: "Robot weight", unit: "g", num: true, get: () => S.mass_g, set: v => { S.mass_g = v; }, hint: "3 lb class: 1361 g" },
     ];
     if (xs !== null && Math.abs(xs - xw) > 5) K.push({ id: "share", label: "Weight on the wheels", unit: "%", min: 20, max: 95, step: 1, get: () => 100 * sm.wheel_share,
-      set: v => { S.cog.x = +(xs - v / 100 * (xs - xw)).toFixed(1); }, fmt: v => `${v.toFixed(0)} %`, hint: "moves the COG between the wheels and the skids: more on the wheels, more grip but it turns and tips easier" });
-    K.push({ id: "cells", label: "Battery", sel: [[3, "3S"], [4, "4S"], [6, "6S"]], num: true, get: () => S.battery.cells, set: v => { S.battery.cells = v; } });
+      set: v => { S.cog.x = +(xs - v / 100 * (xs - xw)).toFixed(1); }, fmt: v => `${v.toFixed(0)} %`, hint: "your CAD's split: moves the COG between the wheels and the skids" });
     if (hasW) {
       const scaleI = (m1, d1) => { if (W.I_override) W.I_override *= (m1 / W.mass_g) * Math.pow(d1 / W.d, 2); };
       K.push(
-        { id: "wd", label: "Weapon diameter", unit: "mm", min: Math.round(W.d * 0.5), max: Math.round(W.d * 1.5), step: 1, get: () => W.d, set: v => { scaleI(W.mass_g, v); W.d = v; }, hint: "tip to tip" },
-        { id: "wm", label: "Weapon mass (the spinning part)", unit: "g", min: 80, max: 650, step: 5, get: () => W.mass_g, set: v => { scaleI(v, W.d); W.mass_g = v; } },
-        { id: "wrpm", label: "Weapon speed", unit: "rpm", min: 1000, max: Math.max(1000, Math.round(free)), step: 50, get: () => Math.min(free, W.rpm_cap || free),
-          set: v => { W.rpm_cap = v >= free - 25 ? 0 : v; }, fmt: v => { const w = v * Math.PI / 30, I = sm.weapon_I || 0; return `${v.toFixed(0)} rpm · ${(0.5 * I * w * w).toFixed(0)} J · tip ${(w * W.d / 2000).toFixed(0)} m/s`; },
-          hint: "all the way right: as fast as the motor goes" },
-        { id: "wspin", label: "Spin-up time (to 90 %)", unit: "s", min: 0.3, max: 6, step: 0.1, get: () => weaponSpinTime(W.esc_A || 40, wTop),
-          set: v => { let lo = 2, hi = 250; for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (weaponSpinTime(m, wTop) > v) lo = m; else hi = m; } W.esc_A = Math.round(hi); },
-          fmt: v => `${v.toFixed(1)} s · ESC limit ${W.esc_A} A`, hint: "sets the weapon ESC's current limit" },
+        { head: "Weapon" },
+        { id: "wmotor", label: "Weapon motor", sel: opts(RB.WEAPON_MOTORS), get: () => W.motor, set: v => { W.motor = v; if (W.adv) { delete W.adv.kv; delete W.adv.R; } } },
+        { id: "wn", label: "Number of weapon motors", unit: "", num: true, get: () => W.motors || 1, set: v => { W.motors = Math.max(1, Math.round(v)); } },
+        { id: "wratio", label: "Reduction (motor turns per weapon turn)", unit: ":1", num: true, get: () => W.ratio || 1, set: v => { W.ratio = v; }, hint: "1 = direct drive" },
+        { id: "wesc", label: "Weapon ESC current limit", unit: "A", num: true, get: () => W.esc_A || 40, set: v => { W.esc_A = v; } },
+        { id: "wcap", label: "Speed limit (throttle you run it at)", unit: "rpm", num: true, blank: true, get: () => W.rpm_cap || undefined, ph: () => Math.round(sm.weapon_rpm_free || 0),
+          set: v => { W.rpm_cap = v > 0 ? v : 0; }, hint: "blank = full throttle" },
+        { id: "wd", label: "Blade diameter", unit: "mm", num: true, get: () => W.d, set: v => { scaleI(W.mass_g, v); W.d = v; }, hint: W.type === "horizontal" ? "tip to tip" : "tooth tip circle" },
+        { id: "wm", label: "Blade mass (the spinning part)", unit: "g", num: true, get: () => W.mass_g, set: v => { scaleI(v, W.d); W.mass_g = v; } },
+        { id: "wshape", label: "Blade shape", sel: opts(RB.SHAPES), get: () => W.shape, set: v => { W.shape = v; delete W.I_override; } },
+        { id: "wI", label: "Blade MOI", unit: "kg m²", num: true, blank: true, get: () => W.I_override, ph: () => +RB.weaponI(Object.assign({}, W, { I_override: 0 })).toPrecision(3),
+          set: v => { if (v > 0) W.I_override = v; else delete W.I_override; }, hint: "from CAD; blank = from the shape, mass and diameter" },
+        { id: "wteeth", label: "Teeth", unit: "", num: true, get: () => W.teeth || 2, set: v => { W.teeth = Math.max(1, Math.round(v)); } },
         { id: "wdir", label: "Spin direction", sel: dirOpts(W.type), num: true, get: () => W.dir, set: v => { W.dir = v; } });
     }
     return K;
   }
+  // what the hardware gives: worked out, not typed in
+  function derived() {
+    let sm; try { sm = RB.summary(S); } catch (e) { return ""; }
+    const W = S.weapon || {}, rows = [
+      ["Top speed (no load)", `${sm.top_speed.toFixed(2)} m/s · ${(sm.top_speed * 2.237).toFixed(1)} mph`],
+      ["Weight on the wheels", `${(100 * sm.wheel_share).toFixed(0)} %`]];
+    if (sm.weapon_I) {
+      const rpm = Math.min(sm.weapon_rpm_free, W.rpm_cap || 1e9), w = rpm * Math.PI / 30;
+      rows.push(["Weapon speed", `${rpm.toFixed(0)} rpm${W.rpm_cap && W.rpm_cap < sm.weapon_rpm_free ? ` (motor could do ${sm.weapon_rpm_free.toFixed(0)})` : ""}`],
+        ["Stored energy", `${(0.5 * sm.weapon_I * w * w).toFixed(0)} J`], ["Tip speed", `${(w * W.d / 2000).toFixed(0)} m/s`],
+        ["Spin-up to 90 %", `${weaponSpinTime(W.esc_A || 40, w).toFixed(1)} s`]);
+    }
+    return `<table class="t derived">${rows.map(([a, b]) => `<tr><td>${a}</td><td><b>${b}</b></td></tr>`).join("")}</table>`;
+  }
   function tuneRows() {
     return knobs().map(k => {
-      const v = k.get();
-      if (k.sel) return `<div class="f knob"><label>${k.label}</label><select data-k="${k.id}">${k.sel.map(([a, l]) => `<option value="${a}"${String(a) === String(v) ? " selected" : ""}>${l}</option>`).join("")}</select></div>`;
+      if (k.head) return `<div class="khead">${k.head}</div>`;
+      const v = k.get(), hint = k.hint ? `<div class="hint">${k.hint}</div>` : "";
+      if (k.sel) {
+        const opt = ([a, l]) => `<option value="${a}"${String(a) === String(v) ? " selected" : ""}>${l}</option>`;
+        const body = k.sel.some(q => q[2]) ? [...new Set(k.sel.map(q => q[2] || "Other"))].map(g => `<optgroup label="${g}">${k.sel.filter(q => (q[2] || "Other") === g).map(opt).join("")}</optgroup>`).join("") : k.sel.map(opt).join("");
+        return `<div class="f knob"><label>${k.label}</label><select data-k="${k.id}">${body}</select>${hint}</div>`;
+      }
+      if (k.min === undefined) {                       // hardware: a number you read off the part
+        const ph = k.ph ? ` placeholder="${k.ph()}"` : "", val = v === undefined || v === null || v === "" ? "" : +(+v).toPrecision(6);
+        return `<div class="f knob num"><label>${k.label}</label><input type="number" step="any" data-k="${k.id}" value="${val}"${ph}><span class="u">${k.unit}</span>${hint}</div>`;
+      }
       const shown = isFinite(v) ? v : k.min;
       return `<div class="f knob"><label>${k.label}</label><input type="range" data-k="${k.id}" min="${k.min}" max="${k.max}" step="${k.step}" value="${shown}">
-        <output id="ko_${k.id}">${k.fmt ? k.fmt(shown) : `${+(+shown).toFixed(k.step < 1 ? 1 : 0)} ${k.unit}`}</output>${k.hint ? `<div class="hint">${k.hint}</div>` : ""}</div>`;
-    }).join("");
+        <output id="ko_${k.id}">${k.fmt ? k.fmt(shown) : `${shown} ${k.unit}`}</output>${hint}</div>`;
+    }).join("") + `<div class="khead">What that gives you</div><div id="derived">${derived()}</div>`;
   }
   function bindTune() {
-    const K = Object.fromEntries(knobs().map(k => [k.id, k]));
+    const K = Object.fromEntries(knobs().filter(k => k.id).map(k => [k.id, k]));
+    const refresh = () => { $("tune").innerHTML = tuneRows(); bindTune(); };
     $("tune").querySelectorAll("[data-k]").forEach(el => {
       const k = K[el.dataset.k];
-      const apply = () => { const v = k.num || el.type === "range" ? +el.value : el.value; k.set(v); rebuild(true); drawSetup(); return v; };
+      const apply = () => {
+        let v = el.value;
+        if (el.type === "number") { if (v === "") { if (!k.blank) return null; v = undefined; } else { v = +v; if (!isFinite(v)) return null; } }
+        else if (k.num || el.type === "range") v = +v;
+        k.set(v); rebuild(true); drawSetup(); return v;
+      };
       if (el.type === "range") {
-        el.addEventListener("input", () => { const v = apply(); const o = $("ko_" + k.id); if (o) o.textContent = k.fmt ? k.fmt(v) : `${+(+v).toFixed(k.step < 1 ? 1 : 0)} ${k.unit}`; });
-        el.addEventListener("change", () => { $("tune").innerHTML = tuneRows(); bindTune(); });
-      } else el.addEventListener("change", () => { apply(); $("tune").innerHTML = tuneRows(); bindTune(); });
+        el.addEventListener("input", () => { const v = apply(); const o = $("ko_" + k.id); if (o) o.textContent = k.fmt ? k.fmt(v) : `${v} ${k.unit}`; $("derived").innerHTML = derived(); });
+        el.addEventListener("change", refresh);
+      } else el.addEventListener("change", () => { if (apply() !== null || el.value === "") refresh(); });
     });
   }
 
