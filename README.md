@@ -19,9 +19,27 @@ Nothing to install, no internet needed: it is one page and plain JavaScript (thr
 
 ## Set up your robot
 
-Press **Setup** and answer the questions. Start from an archetype and change what differs:
+Press **Setup**. It works in three steps:
 
-| Archetype | Layout |
+1. **Pick a robot:** click one of the stock robots (drawn from above).
+2. **Tune it:** a few sliders, each worked out into the real numbers for you:
+
+| Knob | What it changes underneath |
+|---|---|
+| Weight | the mass (3 lb class: 1361 g) |
+| Top speed | the drive gearing (or a tangent drive's roller size) |
+| Tires | the grip curve (urethane, silicone, foam, TPU, rubber, urethane + steel cleats) |
+| Weight on the wheels | the COG, slid between the wheels and the skids (robots with skids) |
+| Battery | 3S, 4S or 6S |
+| Weapon diameter, mass | the blade (a measured weapon MOI scales with them) |
+| Weapon speed | a speed cap; all the way right is the motor's free speed. Shows the energy and tip speed |
+| Spin-up time | the weapon ESC's current limit, solved so it reaches 90 % speed in that time |
+| Spin direction | which way the weapon turns |
+
+   **Back to stock** undoes every knob. Your controls stay when you switch robots.
+3. **Controls and arena:** driving curves, the controller / radio map, the arena and the target box.
+
+| Stock robot | Layout |
 |---|---|
 | Flapjack | horizontal undercutter, 2WD at the back, steel skid under the weapon (Nicky's measured values) |
 | Undercutter | the same layout with typical numbers |
@@ -32,28 +50,15 @@ Press **Setup** and answer the questions. Start from an archetype and change wha
 | Hub undercutter | horizontal blade on a hubmotor out front, 2WD at the back |
 | Fork wedge | long side forks and centre forks on the floor, 2WD, no weapon |
 | Big-wheel | two huge wheels, the body hung on the axle, legs trailing to the floor, a vertical blade out front between the wheels |
+| Big-wheel coaxial | 10.5 in wheels, a 9 in uppercut blade on the wheel axle between them, trailing legs |
 | Eggbeater | short wide beater between two uprights, forks under it, 4WD |
 | 4WD pusher | four wheels chained per side, no weapon |
 
-The five after Shell spinner were set up from photos: their sizes and masses are estimates.
+Everything after Shell spinner was set up from photos or typical values: sizes and masses are estimates.
 
-What it asks:
-
-- **Robot:** weight; COG (forward, left, height); MOI (yaw from your CAD, roll and pitch too or in proportion, or let
-  it estimate all three); body outline; body bottom and top heights.
-- **Wheels:** how many; where (x, y); diameter and width; which side; driven or not. Then: chained per side, or one
-  motor per wheel; and the tire.
-- **Skids:** anything else touching the floor, what it is made of, and its gap (how far above the floor it sits at
-  rest: a caster set a hair high lets the wheels carry the robot).
-- **Drive:** motor, ESC current limit, drag brake, drive voltage cap; battery cells and capacity.
-- **Weapon:** horizontal, vertical or drum; where its centre is (x, y and height); diameter, thickness, spinning mass,
-  shape, teeth, spin direction; weapon motor(s), reduction, ESC limit, speed cap.
-- **Driving curves:** arcade, single-stick or tank mix; rate, expo, deadband and reverse for throttle and steering;
-  steering left at full throttle; invert when upside down; key ramp; precision; weapon toggle or hold.
-
-Measure every position in mm from one point on your robot (the drive axle centre is handy), with x forward and y left.
-Heights are above the floor. Setup warns when the weapon doesn't reach past the front of the body and wheels (the chassis would hit first).
-Tick **advanced** for motor constants, tire curve, pack resistance and weapon inertia.
+**Building your own:** open **Edit every number** at the bottom of Setup. It has every position, wheel, skid, motor and
+weapon field. Measure in mm from one point on your robot (the drive axle centre is handy), x forward and y left;
+heights are above the floor. Tick **advanced** for motor constants, tire curve, pack resistance and weapon inertia.
 **Save** keeps a robot in your browser; **Export** and **Import** move it around as a `.robot.json` file.
 
 ## Motors

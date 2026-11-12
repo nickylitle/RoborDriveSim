@@ -14,6 +14,8 @@
   let mine = store.get("rds.robots", {});                 // name -> setup
   let S = clone(mine[store.get("rds.last", "")] || RB.PRESETS.flapjack);
   if (!S.controls) S.controls = clone(IN.DEFAULT_CONTROLS);
+  const baseOf = X => X.base || (Object.entries(RB.PRESETS).find(([, p]) => p.name === X.name) || ["flapjack"])[0];
+  S.base = baseOf(S);
   const env = Object.assign({ arena: "nhrl3", target: false, tmass_g: 1361, tsize: 120, theight: 60, tmu: 0.3 }, store.get("rds.env", {}));
   let R = null, sim = null, paused = false, timeScale = 1, carry = 0, last = 0;
   const CAMS = ["chase", "top", "arena", "orbit"];
@@ -58,8 +60,11 @@
   }
   $("robotSel").onchange = e => {
     const v = e.target.value;
+    const C0 = S.controls;
     S = clone(v.startsWith("m:") ? mine[v.slice(2)] : RB.PRESETS[v.slice(2)]);
+    if (v.startsWith("p:")) { S.base = v.slice(2); S.controls = C0; }    // your controls follow you to another robot
     if (!S.controls) S.controls = clone(IN.DEFAULT_CONTROLS);
+    S.base = baseOf(S);
     store.set("rds.last", S.name);
     input.weaponOn = false; input.wthr = 0;
     rebuild(); renderSetup();
@@ -121,72 +126,14 @@
     const TI = RB.TIRES[S.tire] || RB.TIRES.urethane, DM = RB.DRIVE_MOTORS[S.drive.motor] || RB.DRIVE_MOTORS.compact1806;
     const WM = RB.WEAPON_MOTORS[W.motor] || RB.WEAPON_MOTORS.m2807_1350;
     $("sbody").innerHTML = `
+      <h3 class="step">1 · Pick a robot</h3>
+      <div class="cards">${presetCards()}</div>
       <canvas id="view" width="1040" height="600"></canvas>
       <div class="out" id="sum"></div>
-      <div class="f"><label>Name</label><input type="text" data-p="name" data-t="str" value="${S.name}" style="flex:1"></div>
-      <div class="note">${S.note || ""} Measure every position in mm from one point on the robot (the drive axle centre is handy): x forward, y left.</div>
-      <details open><summary>Robot <span class="q">how heavy, where is the COG, what is its MOI</span></summary><div class="sec">
-        ${fNum("Weight", "mass_g", "g", { hint: "3 lb class limit: 1361 g" })}
-        ${fNum("COG forward (x)", "cog.x", "mm")}${fNum("COG left (y)", "cog.y", "mm")}${fNum("COG height above the floor", "cog.h", "mm", { hint: "sets how much weight shifts when it speeds up, brakes or turns" })}
-        ${fChk("Estimate the yaw MOI for me", "moi_auto", { hint: "from the outline, wheels and weapon; your CAD's value (about the COG, vertical axis) is better" })}
-        ${S.moi_auto ? "" : fNum("Yaw MOI about the COG (turning)", "moi_gmm2", "g mm²", { hint: "SolidWorks Mass Properties: Lzz at the centre of mass, in grams × mm²" })}
-        ${S.moi_auto ? "" : fNum("Roll MOI (about x, forward)", "moi_roll", "g mm²", { ph: RB.moi3(Object.assign({}, S, { moi_roll: 0 }))[0], hint: "blank = in proportion to the yaw value; matters for tipping and gyro tilt" })}
-        ${S.moi_auto ? "" : fNum("Pitch MOI (about y, left)", "moi_pitch", "g mm²", { ph: RB.moi3(Object.assign({}, S, { moi_pitch: 0 }))[1] })}
-        ${fNum("Body bottom above the floor", "body.z0", "mm", { hint: "ground clearance of the chassis (what lands when it tips)" })}
-        ${fNum("Body top above the floor", "body.z1", "mm", { hint: "wheels taller than this: it drives upside down too" })}
-        <div class="f"><label>Body outline (x,y points in mm, around the edge)</label><textarea rows="2" data-p="body.pts" data-t="pts">${S.body.pts.map(p => p.join(",")).join("; ")}</textarea>
-          <div class="hint">what hits the walls and the target, and what is drawn. Wheels and the weapon are added on.</div></div>
-      </div></details>
-      <details open><summary>Wheels <span class="q">how many, where, how big, what tire</span></summary><div class="sec">
-        ${fSel("Number of wheels", "_nwheels", [[2, "2"], [3, "3"], [4, "4"], [6, "6"]], { type: "num" })}
-        ${wheelRows()}
-        ${fChk("Wheels on each side linked (chain / belt)", "linked", { hint: "linked: each side's wheels turn together on that side's motors; not linked: every driven wheel has its own motor" })}
-        ${S.linked ? fNum("Motors per side", "motors_per_side", "", { step: 1, min: 1 }) : ""}
-        ${fSel("Tire", "tire", opts(RB.TIRES))}
-        ${fNum("Grip sliding (μ)", "tire_adv.muk", "", { adv: true, hint: "blank = the tire's value (shown greyed)", ph: TI.muk })}${fNum("Grip peak (μ)", "tire_adv.mus", "", { adv: true, ph: TI.mus })}
-        ${fNum("Slip ratio at the peak", "tire_adv.sigp", "", { adv: true, ph: TI.sigp })}${fNum("Rolling resistance (Crr)", "tire_adv.crr", "", { adv: true, ph: TI.crr })}
-      </div></details>
-      <details open><summary>Skids <span class="q">anything else touching the floor</span></summary><div class="sec">
-        ${fSel("Number of skids", "_nskids", [[0, "0"], [1, "1"], [2, "2"], [3, "3"], [4, "4"]], { type: "num" })}
-        ${skidRows()}
-      </div></details>
-      <details><summary>Drive motors and battery <span class="q">what drives it</span></summary><div class="sec">
-        ${fSel("Drive motor", "drive.motor", opts(RB.DRIVE_MOTORS), { wide: true, hint: motorHint(DM) })}
-        ${DM.tangent_d ? fNum("Roller (motor shaft) diameter", "drive.roller_d", "mm", { ph: DM.tangent_d, hint: `tangent drive: ratio = wheel / roller = ${RB.tangentRatio(S, DM).toFixed(2)}:1` }) : ""}
-        ${fNum("ESC current limit", "drive.esc_A", "A")}
-        ${fChk("Drag brake (stops when you let go)", "drive.brake")}
-        ${fNum("Drive voltage cap", "drive.drive_V", "V", { hint: "0 = the full pack; a value runs the drive slower than the pack (an ESC endpoint, e.g. 5S drive on a 6S pack)" })}
-        ${fNum("Motor kv", "drive.adv.kv", "rpm/V", { adv: true, hint: "blank = the motor's value (shown greyed)", ph: DM.kv })}${fNum("Motor resistance", "drive.adv.R", "Ω", { adv: true, ph: DM.R })}
-        ${fNum("Gearbox ratio", "drive.adv.G", ":1", { adv: true, ph: DM.G })}${fNum("Gearbox efficiency", "drive.adv.eta", "", { adv: true, ph: DM.eta })}${fNum("Rotor inertia", "drive.adv.Jrot", "kg m²", { adv: true, ph: DM.Jrot })}
-        ${fNum("Battery cells", "battery.cells", "S", { step: 1, min: 1 })}${fNum("Capacity", "battery.mAh", "mAh")}
-        ${fNum("Pack resistance", "battery.R_mohm", "mΩ", { adv: true, ph: 40 })}${fNum("Volts per cell", "battery.cellV", "V", { adv: true, hint: "blank = 3.7 (nominal); 4.2 full, 3.85 HV nominal", ph: 3.7 })}
-      </div></details>
-      <details open><summary>Weapon <span class="q">how big, how heavy, where, which way</span></summary><div class="sec">
-        ${fSel("Weapon", "weapon.type", [["none", "None"], ["horizontal", "Horizontal spinner (blade, disc, shell, ring)"], ["vertical", "Vertical spinner (disc, beater)"], ["drum", "Drum"]])}
-        ${hasW ? `
-        ${fNum("Centre forward (x)", "weapon.x", "mm")}${fNum("Centre left (y)", "weapon.y", "mm")}
-        ${fNum("Centre height above the floor", "weapon.z", "mm", { hint: W.type === "horizontal" ? "the blade's plane" : "the axle" })}
-        ${fNum("Diameter", "weapon.d", "mm", { hint: W.type === "horizontal" ? "tip to tip" : "tooth tip circle" })}
-        ${fNum("Spinning mass", "weapon.mass_g", "g", { hint: "only the part that spins" })}
-        ${fSel("Shape", "weapon.shape", opts(RB.SHAPES))}
-        ${fNum(W.type === "horizontal" ? "Thickness" : "Width across the robot", "weapon.thick", "mm")}
-        ${W.type === "horizontal" && W.shape === "bar" ? fNum("Blade width (drawing only)", "weapon.blade_w", "mm") : ""}
-        ${W.type === "horizontal" ? fChk("Weapon sits above the body (shell, ring, top spinner)", "weapon.above", { hint: "off for an undercutter: drawn under the chassis" }) : ""}
-        ${fNum("Teeth (impacts per turn)", "weapon.teeth", "", { step: 1, min: 1 })}
-        ${fSel("Spin direction", "weapon.dir", dirOpts(W.type), { type: "num" })}
-        ${fSel("Weapon motor", "weapon.motor", opts(RB.WEAPON_MOTORS), { wide: true, hint: motorHint(WM) })}
-        ${fNum("Number of weapon motors", "weapon.motors", "", { step: 1, min: 1 })}
-        ${fNum("Reduction (motor turns per weapon turn)", "weapon.ratio", ":1", { hint: "belt or friction drive; 1 = direct" })}
-        ${fNum("Weapon ESC current limit", "weapon.esc_A", "A")}
-        ${fChk("ESC brakes the weapon when off", "weapon.brake", { def: true, hint: "drag brake: the motor slows the blade instead of letting it coast" })}
-        ${fNum("Brake current", "weapon.brake_A", "A", { adv: true, hint: "blank = the ESC current limit" })}
-        ${fNum("Speed cap", "weapon.rpm_cap", "rpm", { hint: "0 = none; a governor or the throttle you run it at" })}
-        ${fNum("Weapon MOI (overrides the shape)", "weapon.I_override", "kg m²", { adv: true, hint: "blank = from the shape, mass and diameter", ph: hasW ? RB.weaponI(Object.assign({}, W, { I_override: 0 })) : 0 })}
-        ${fNum("Weapon motor kv", "weapon.adv.kv", "rpm/V", { adv: true, ph: WM.kv })}${fNum("Weapon motor resistance", "weapon.adv.R", "Ω", { adv: true, ph: WM.R })}
-        ${fNum("Hit restitution", "weapon.adv.bite_e", "", { adv: true, hint: "0 to 1: how much a tooth bounces off rather than bites", ph: 0.3 })}
-        ${fNum("Most of the blade's energy one hit can take", "weapon.adv.hit_take", "%", { adv: true, ph: 50, hint: "a rigid hit would stop the blade dead; real armour crushes, so blades keep speed. Tune from slow-motion video: blade rpm before and after a hit" })}
-        ` : ""}
-      </div></details>
+      <h3 class="step">2 · Tune it <button id="bStock" class="mini" title="Put every setting back to this robot's stock values (keeps your controls)">Back to stock</button></h3>
+      <div class="note">${S.note || ""}</div>
+      <div id="tune">${tuneRows()}</div>
+      <h3 class="step">3 · Controls and arena</h3>
       <details><summary>Driving curves <span class="q">how the sticks and keys feel</span></summary><div class="sec">
         <canvas id="curves" width="1040" height="300"></canvas>
         ${fSel("Mix", "controls.mix", [["arcade", "Arcade: left stick throttle, right stick steering"], ["single", "Single stick: left stick does both"], ["tank", "Tank: one stick per side"]])}
@@ -214,6 +161,73 @@
         <div class="f"><label>Target box size (square)</label><input type="number" id="tSize" value="${env.tsize}"><span class="u">mm</span></div>
         <div class="f"><label>Target box height</label><input type="number" id="tHeight" value="${env.theight || 60}"><span class="u">mm</span></div>
         <div class="f"><label>Target floor friction</label><input type="number" id="tMu" value="${env.tmu}"><span class="u">μ</span></div>
+      </div></details>
+      <details id="advAll"><summary>Edit every number <span class="q">positions, wheels, skids, motors: for building your own robot</span></summary><div class="sec">
+      <div class="f"><label>Name</label><input type="text" data-p="name" data-t="str" value="${S.name}" style="flex:1"></div>
+      <div class="note">Measure every position in mm from one point on the robot (the drive axle centre is handy): x forward, y left.</div>
+      <details><summary>Robot <span class="q">how heavy, where is the COG, what is its MOI</span></summary><div class="sec">
+        ${fNum("Weight", "mass_g", "g", { hint: "3 lb class limit: 1361 g" })}
+        ${fNum("COG forward (x)", "cog.x", "mm")}${fNum("COG left (y)", "cog.y", "mm")}${fNum("COG height above the floor", "cog.h", "mm", { hint: "sets how much weight shifts when it speeds up, brakes or turns" })}
+        ${fChk("Estimate the yaw MOI for me", "moi_auto", { hint: "from the outline, wheels and weapon; your CAD's value (about the COG, vertical axis) is better" })}
+        ${S.moi_auto ? "" : fNum("Yaw MOI about the COG (turning)", "moi_gmm2", "g mm²", { hint: "SolidWorks Mass Properties: Lzz at the centre of mass, in grams × mm²" })}
+        ${S.moi_auto ? "" : fNum("Roll MOI (about x, forward)", "moi_roll", "g mm²", { ph: RB.moi3(Object.assign({}, S, { moi_roll: 0 }))[0], hint: "blank = in proportion to the yaw value; matters for tipping and gyro tilt" })}
+        ${S.moi_auto ? "" : fNum("Pitch MOI (about y, left)", "moi_pitch", "g mm²", { ph: RB.moi3(Object.assign({}, S, { moi_pitch: 0 }))[1] })}
+        ${fNum("Body bottom above the floor", "body.z0", "mm", { hint: "ground clearance of the chassis (what lands when it tips)" })}
+        ${fNum("Body top above the floor", "body.z1", "mm", { hint: "wheels taller than this: it drives upside down too" })}
+        <div class="f"><label>Body outline (x,y points in mm, around the edge)</label><textarea rows="2" data-p="body.pts" data-t="pts">${S.body.pts.map(p => p.join(",")).join("; ")}</textarea>
+          <div class="hint">what hits the walls and the target, and what is drawn. Wheels and the weapon are added on.</div></div>
+      </div></details>
+      <details><summary>Wheels <span class="q">how many, where, how big, what tire</span></summary><div class="sec">
+        ${fSel("Number of wheels", "_nwheels", [[2, "2"], [3, "3"], [4, "4"], [6, "6"]], { type: "num" })}
+        ${wheelRows()}
+        ${fChk("Wheels on each side linked (chain / belt)", "linked", { hint: "linked: each side's wheels turn together on that side's motors; not linked: every driven wheel has its own motor" })}
+        ${S.linked ? fNum("Motors per side", "motors_per_side", "", { step: 1, min: 1 }) : ""}
+        ${fSel("Tire", "tire", opts(RB.TIRES))}
+        ${fNum("Grip sliding (μ)", "tire_adv.muk", "", { adv: true, hint: "blank = the tire's value (shown greyed)", ph: TI.muk })}${fNum("Grip peak (μ)", "tire_adv.mus", "", { adv: true, ph: TI.mus })}
+        ${fNum("Slip ratio at the peak", "tire_adv.sigp", "", { adv: true, ph: TI.sigp })}${fNum("Rolling resistance (Crr)", "tire_adv.crr", "", { adv: true, ph: TI.crr })}
+      </div></details>
+      <details><summary>Skids <span class="q">anything else touching the floor</span></summary><div class="sec">
+        ${fSel("Number of skids", "_nskids", [[0, "0"], [1, "1"], [2, "2"], [3, "3"], [4, "4"]], { type: "num" })}
+        ${skidRows()}
+      </div></details>
+      <details><summary>Drive motors and battery <span class="q">what drives it</span></summary><div class="sec">
+        ${fSel("Drive motor", "drive.motor", opts(RB.DRIVE_MOTORS), { wide: true, hint: motorHint(DM) })}
+        ${DM.tangent_d ? fNum("Roller (motor shaft) diameter", "drive.roller_d", "mm", { ph: DM.tangent_d, hint: `tangent drive: ratio = wheel / roller = ${RB.tangentRatio(S, DM).toFixed(2)}:1` }) : ""}
+        ${fNum("ESC current limit", "drive.esc_A", "A")}
+        ${fChk("Drag brake (stops when you let go)", "drive.brake")}
+        ${fNum("Drive voltage cap", "drive.drive_V", "V", { hint: "0 = the full pack; a value runs the drive slower than the pack (an ESC endpoint, e.g. 5S drive on a 6S pack)" })}
+        ${fNum("Motor kv", "drive.adv.kv", "rpm/V", { adv: true, hint: "blank = the motor's value (shown greyed)", ph: DM.kv })}${fNum("Motor resistance", "drive.adv.R", "Ω", { adv: true, ph: DM.R })}
+        ${fNum("Gearbox ratio", "drive.adv.G", ":1", { adv: true, ph: DM.G })}${fNum("Gearbox efficiency", "drive.adv.eta", "", { adv: true, ph: DM.eta })}${fNum("Rotor inertia", "drive.adv.Jrot", "kg m²", { adv: true, ph: DM.Jrot })}
+        ${fNum("Battery cells", "battery.cells", "S", { step: 1, min: 1 })}${fNum("Capacity", "battery.mAh", "mAh")}
+        ${fNum("Pack resistance", "battery.R_mohm", "mΩ", { adv: true, ph: 40 })}${fNum("Volts per cell", "battery.cellV", "V", { adv: true, hint: "blank = 3.7 (nominal); 4.2 full, 3.85 HV nominal", ph: 3.7 })}
+      </div></details>
+      <details><summary>Weapon <span class="q">how big, how heavy, where, which way</span></summary><div class="sec">
+        ${fSel("Weapon", "weapon.type", [["none", "None"], ["horizontal", "Horizontal spinner (blade, disc, shell, ring)"], ["vertical", "Vertical spinner (disc, beater)"], ["drum", "Drum"]])}
+        ${hasW ? `
+        ${fNum("Centre forward (x)", "weapon.x", "mm")}${fNum("Centre left (y)", "weapon.y", "mm")}
+        ${fNum("Centre height above the floor", "weapon.z", "mm", { hint: W.type === "horizontal" ? "the blade's plane" : "the axle" })}
+        ${fNum("Diameter", "weapon.d", "mm", { hint: W.type === "horizontal" ? "tip to tip" : "tooth tip circle" })}
+        ${fNum("Spinning mass", "weapon.mass_g", "g", { hint: "only the part that spins" })}
+        ${fSel("Shape", "weapon.shape", opts(RB.SHAPES))}
+        ${fNum(W.type === "horizontal" ? "Thickness" : "Width across the robot", "weapon.thick", "mm")}
+        ${W.type === "horizontal" && W.shape === "bar" ? fNum("Blade width (drawing only)", "weapon.blade_w", "mm") : ""}
+        ${W.type === "horizontal" ? fChk("Weapon sits above the body (shell, ring, top spinner)", "weapon.above", { hint: "off for an undercutter: drawn under the chassis" }) : ""}
+        ${fNum("Teeth (impacts per turn)", "weapon.teeth", "", { step: 1, min: 1 })}
+        ${fSel("Spin direction", "weapon.dir", dirOpts(W.type), { type: "num" })}
+        ${fSel("Weapon motor", "weapon.motor", opts(RB.WEAPON_MOTORS), { wide: true, hint: motorHint(WM) })}
+        ${fNum("Number of weapon motors", "weapon.motors", "", { step: 1, min: 1 })}
+        ${fNum("Reduction (motor turns per weapon turn)", "weapon.ratio", ":1", { hint: "belt or friction drive; 1 = direct" })}
+        ${fNum("Weapon ESC current limit", "weapon.esc_A", "A")}
+        ${fChk("ESC brakes the weapon when off", "weapon.brake", { def: true, hint: "drag brake: the motor slows the blade instead of letting it coast" })}
+        ${fNum("Brake current", "weapon.brake_A", "A", { adv: true, hint: "blank = the ESC current limit" })}
+        ${fNum("Speed cap", "weapon.rpm_cap", "rpm", { hint: "0 = none; a governor or the throttle you run it at" })}
+        ${fNum("Weapon MOI (overrides the shape)", "weapon.I_override", "kg m²", { adv: true, hint: "blank = from the shape, mass and diameter", ph: hasW ? RB.weaponI(Object.assign({}, W, { I_override: 0 })) : 0 })}
+        ${fNum("Weapon motor kv", "weapon.adv.kv", "rpm/V", { adv: true, ph: WM.kv })}${fNum("Weapon motor resistance", "weapon.adv.R", "Ω", { adv: true, ph: WM.R })}
+        ${fNum("Hit restitution", "weapon.adv.bite_e", "", { adv: true, hint: "0 to 1: how much a tooth bounces off rather than bites", ph: 0.3 })}
+        ${fNum("Most of the blade's energy one hit can take", "weapon.adv.hit_take", "%", { adv: true, ph: 50, hint: "a rigid hit would stop the blade dead; real armour crushes, so blades keep speed. Tune from slow-motion video: blade rpm before and after a hit" })}
+        ` : ""}
+      </div></details>
+      </div></details>
       </div></details>`;
     // bind
     $("sbody").querySelectorAll("[data-p]").forEach(el => {
@@ -236,11 +250,104 @@
     });
     const envChange = () => { env.arena = $("arenaSel").value; env.tmass_g = +$("tMass").value; env.tsize = +$("tSize").value; env.theight = +$("tHeight").value; env.tmu = +$("tMu").value; store.set("rds.env", env); rebuild(); drawSetup(); };
     ["arenaSel", "tMass", "tSize", "tHeight", "tMu"].forEach(id => $(id).addEventListener("change", envChange));
+    $("sbody").querySelectorAll("[data-card]").forEach(el => el.onclick = () => pickPreset(el.dataset.card));
+    $("bStock").onclick = () => pickPreset(S.base);
+    bindTune();
     renderPad();
     const nw = $("sbody").querySelector('[data-p="_nwheels"]'); if (nw) nw.value = String(S.wheels.length);
     const ns = $("sbody").querySelector('[data-p="_nskids"]'); if (ns) ns.value = String(S.skids.length);
     drawSetup();
   }
+  // ---- 1 · pick: a card per stock robot, drawn from above
+  function topView(P) {
+    const pts = [], W = P.weapon || {};
+    P.body.pts.forEach(p => pts.push(p));
+    P.wheels.forEach(q => { const r = q.d / 2, w = (q.w || 16) / 2; pts.push([q.x - r, q.y - w], [q.x + r, q.y + w]); });
+    if (W.type && W.type !== "none") { const r = W.d / 2; pts.push([W.x - r, W.y - r], [W.x + r, W.y + r]); }
+    (P.skids || []).forEach(q => pts.push([q.x, q.y]));
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), pad = 12;
+    const x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad, y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
+    const X = (x, y) => `${(-y).toFixed(1)},${(-x).toFixed(1)}`;      // forward is up the card, left is left
+    let g = `<polygon points="${P.body.pts.map(p => X(p[0], p[1])).join(" ")}" fill="#273041" stroke="#8a94a6" stroke-width="3"/>`;
+    P.wheels.forEach(q => { const r = q.d / 2, w = (q.w || 16) / 2; g += `<rect x="${-q.y - w}" y="${-q.x - r}" width="${2 * w}" height="${2 * r}" rx="${Math.min(w, r) * 0.6}" fill="#11151c" stroke="#5d6878" stroke-width="3"/>`; });
+    (P.skids || []).forEach(q => { g += `<circle cx="${-q.y}" cy="${-q.x}" r="6" fill="#8a94a6"/>`; });
+    if (W.type === "horizontal") g += `<circle cx="${-W.y}" cy="${-W.x}" r="${W.d / 2}" fill="#e5383b22" stroke="#e5383b" stroke-width="4"/>`;
+    else if (W.type && W.type !== "none") { const t = Math.max(W.thick || 10, 8); g += `<rect x="${-W.y - t / 2}" y="${-W.x - W.d / 2}" width="${t}" height="${W.d}" rx="3" fill="#e5383b"/>`; }
+    return `<svg viewBox="${-y1} ${-x1} ${y1 - y0} ${x1 - x0}" preserveAspectRatio="xMidYMid meet">${g}</svg>`;
+  }
+  function presetCards() {
+    return Object.entries(RB.PRESETS).map(([k, P]) => `<button class="card${k === S.base ? " on" : ""}" data-card="${k}" title="${P.archetype.replace(/"/g, "&quot;")}">${topView(P)}<b>${P.name}</b><span>${P.archetype.split(/[,(]/)[0]}</span></button>`).join("");
+  }
+  function pickPreset(k) {
+    const C0 = S.controls;
+    S = clone(RB.PRESETS[k]); S.base = k; S.controls = C0 || clone(IN.DEFAULT_CONTROLS);
+    store.set("rds.last", S.name); input.weaponOn = false; input.wthr = 0;
+    rebuild(); renderSetup(); fillRobotSel();
+  }
+
+  // ---- 2 · tune: a few knobs that move the numbers that matter for driving, worked out for you
+  function weaponSpinTime(A, Wt) {                    // s to 90 % of the target speed at an ESC limit of A amps
+    const W = R && R.weapon; if (!W) return 0;
+    const Ke = 60 / (2 * Math.PI * W.motor.kv), V = R.battery.V, target = 0.9 * Wt;
+    let w = 0, t = 0; const dt = 0.002;
+    while (w < target && t < 30) { const I = Math.min(A, (V - Ke * w * W.G) / W.motor.R); if (I <= 0) return 30; w += W.n * Ke * I * W.G * W.eta / W.I * dt; t += dt; }
+    return t;
+  }
+  function knobs() {
+    const sm = (() => { try { return RB.summary(S); } catch (e) { return {}; } })();
+    const W = S.weapon || {}, hasW = W.type && W.type !== "none";
+    const DM = RB.DRIVE_MOTORS[S.drive.motor] || RB.DRIVE_MOTORS.compact1806;
+    const driven = S.wheels.filter(q => q.driven), xw = driven.reduce((a, q) => a + q.x, 0) / Math.max(driven.length, 1);
+    const xs = S.skids.length ? S.skids.reduce((a, q) => a + q.x, 0) / S.skids.length : null;
+    const free = sm.weapon_rpm_free || 0, wTop = Math.min(free, W.rpm_cap || 1e9) * Math.PI / 30;
+    const K = [
+      { id: "mass", label: "Weight", unit: "g", min: 900, max: 1361, step: 1, get: () => S.mass_g, set: v => { S.mass_g = v; }, hint: "3 lb class: 1361 g" },
+      { id: "speed", label: "Top speed", unit: "m/s", min: 1, max: 10, step: 0.1, get: () => sm.top_speed, fmt: v => `${v.toFixed(1)} m/s · ${(v * 2.237).toFixed(1)} mph`,
+        set: v => { const top = RB.summary(S).top_speed; if (!(top > 0)) return;
+          if (DM.tangent_d) S.drive.roller_d = (S.drive.roller_d || DM.tangent_d) * v / top;
+          else { S.drive.adv = S.drive.adv || {}; S.drive.adv.G = ((S.drive.adv.G) || DM.G) * top / v; } },
+        hint: "sets the gearing; more speed, less push and slower acceleration" },
+      { id: "tire", label: "Tires", sel: Object.entries(RB.TIRES).map(([k, t]) => [k, t.label]), get: () => S.tire, set: v => { S.tire = v; delete S.tire_adv; } },
+    ];
+    if (xs !== null && Math.abs(xs - xw) > 5) K.push({ id: "share", label: "Weight on the wheels", unit: "%", min: 20, max: 95, step: 1, get: () => 100 * sm.wheel_share,
+      set: v => { S.cog.x = +(xs - v / 100 * (xs - xw)).toFixed(1); }, fmt: v => `${v.toFixed(0)} %`, hint: "moves the COG between the wheels and the skids: more on the wheels, more grip but it turns and tips easier" });
+    K.push({ id: "cells", label: "Battery", sel: [[3, "3S"], [4, "4S"], [6, "6S"]], num: true, get: () => S.battery.cells, set: v => { S.battery.cells = v; } });
+    if (hasW) {
+      const scaleI = (m1, d1) => { if (W.I_override) W.I_override *= (m1 / W.mass_g) * Math.pow(d1 / W.d, 2); };
+      K.push(
+        { id: "wd", label: "Weapon diameter", unit: "mm", min: Math.round(W.d * 0.5), max: Math.round(W.d * 1.5), step: 1, get: () => W.d, set: v => { scaleI(W.mass_g, v); W.d = v; }, hint: "tip to tip" },
+        { id: "wm", label: "Weapon mass (the spinning part)", unit: "g", min: 80, max: 650, step: 5, get: () => W.mass_g, set: v => { scaleI(v, W.d); W.mass_g = v; } },
+        { id: "wrpm", label: "Weapon speed", unit: "rpm", min: 1000, max: Math.max(1000, Math.round(free)), step: 50, get: () => Math.min(free, W.rpm_cap || free),
+          set: v => { W.rpm_cap = v >= free - 25 ? 0 : v; }, fmt: v => { const w = v * Math.PI / 30, I = sm.weapon_I || 0; return `${v.toFixed(0)} rpm · ${(0.5 * I * w * w).toFixed(0)} J · tip ${(w * W.d / 2000).toFixed(0)} m/s`; },
+          hint: "all the way right: as fast as the motor goes" },
+        { id: "wspin", label: "Spin-up time (to 90 %)", unit: "s", min: 0.3, max: 6, step: 0.1, get: () => weaponSpinTime(W.esc_A || 40, wTop),
+          set: v => { let lo = 2, hi = 250; for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (weaponSpinTime(m, wTop) > v) lo = m; else hi = m; } W.esc_A = Math.round(hi); },
+          fmt: v => `${v.toFixed(1)} s · ESC limit ${W.esc_A} A`, hint: "sets the weapon ESC's current limit" },
+        { id: "wdir", label: "Spin direction", sel: dirOpts(W.type), num: true, get: () => W.dir, set: v => { W.dir = v; } });
+    }
+    return K;
+  }
+  function tuneRows() {
+    return knobs().map(k => {
+      const v = k.get();
+      if (k.sel) return `<div class="f knob"><label>${k.label}</label><select data-k="${k.id}">${k.sel.map(([a, l]) => `<option value="${a}"${String(a) === String(v) ? " selected" : ""}>${l}</option>`).join("")}</select></div>`;
+      const shown = isFinite(v) ? v : k.min;
+      return `<div class="f knob"><label>${k.label}</label><input type="range" data-k="${k.id}" min="${k.min}" max="${k.max}" step="${k.step}" value="${shown}">
+        <output id="ko_${k.id}">${k.fmt ? k.fmt(shown) : `${+(+shown).toFixed(k.step < 1 ? 1 : 0)} ${k.unit}`}</output>${k.hint ? `<div class="hint">${k.hint}</div>` : ""}</div>`;
+    }).join("");
+  }
+  function bindTune() {
+    const K = Object.fromEntries(knobs().map(k => [k.id, k]));
+    $("tune").querySelectorAll("[data-k]").forEach(el => {
+      const k = K[el.dataset.k];
+      const apply = () => { const v = k.num || el.type === "range" ? +el.value : el.value; k.set(v); rebuild(true); drawSetup(); return v; };
+      if (el.type === "range") {
+        el.addEventListener("input", () => { const v = apply(); const o = $("ko_" + k.id); if (o) o.textContent = k.fmt ? k.fmt(v) : `${+(+v).toFixed(k.step < 1 ? 1 : 0)} ${k.unit}`; });
+        el.addEventListener("change", () => { $("tune").innerHTML = tuneRows(); bindTune(); });
+      } else el.addEventListener("change", () => { apply(); $("tune").innerHTML = tuneRows(); bindTune(); });
+    });
+  }
+
   function setWheelCount(n) {
     const old = S.wheels, ys = old.map(q => Math.abs(q.y)), y = Math.max(...ys, 60), d = old[0] ? old[0].d : 50, x0 = old.reduce((a, q) => a + q.x, 0) / Math.max(old.length, 1);
     const rows = { 2: [0], 3: [-35, 35], 4: [-45, 45], 6: [-60, 0, 60] };

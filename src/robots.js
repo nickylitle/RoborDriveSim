@@ -16,6 +16,7 @@
     foam:      { label: "Foam (estimate)", muk: 1.0, mus: 1.1, sigp: 0.15, crr: 0.03 },
     tpu:       { label: "Printed TPU, no tread (estimate)", muk: 0.8, mus: 0.9, sigp: 0.10, crr: 0.015 },
     rubber:    { label: "Hard rubber / O-ring (estimate)", muk: 0.9, mus: 1.0, sigp: 0.10, crr: 0.015 },
+    cleats:    { label: "Urethane + steel cleats on painted wood (estimate: they bite the wood)", muk: 2.2, mus: 2.7, sigp: 0.06, crr: 0.025 },
   };
   const SKIDS = {
     steel:  { label: "Steel (bolt head, wedge edge): measured 0.203 on painted wood", muk: 0.203, mus: 0.25 },
@@ -169,6 +170,19 @@
       battery: { cells: 4, mAh: 650, R_mohm: 40 },
       weapon: { type: "vertical", x: 70, y: 0, z: 85, d: 150, mass_g: 220, shape: "bar", thick: 10, teeth: 2, dir: -1,
                 motor: "rep_repeat_2822_mk3_1800kv", motors: 1, ratio: 1.5, esc_A: 40 },
+    },
+    coaxial: {
+      name: "Big-wheel coaxial", archetype: "Two 10.5 in wheels, a 9 in uppercut blade on the wheel axle between them, trailing legs",
+      note: "The blade spins on the same axle as the wheels, so it can never touch the floor (19 mm clear) and the body hangs on that axle. It uppercuts (front of the blade moving up). Two trailing legs and a COG 60 mm behind the axle stop the spin-up kick from swinging the body over the top: with the COG 25 mm back it flipped during spin-up. Opponents are hit between the wheels (235 mm gap). Weights and motors are typical beetle values: replace them with yours.",
+      mass_g: 1360, cog: { x: -60, y: 0, h: 110 }, moi_auto: true,
+      body: { pts: [[-90, 110], [-90, -110], [30, -110], [30, 110]], z0: 70, z1: 165 },
+      wheels: [Object.assign(w(0, 125, 266.7, "L"), { w: 15, mass_g: 70 }), Object.assign(w(0, -125, 266.7, "R"), { w: 15, mass_g: 70 })],
+      linked: false, motors_per_side: 1,
+      tire: "foam", skids: [{ x: -210, y: 80, type: "uhmw" }, { x: -210, y: -80, type: "uhmw" }],
+      drive: { motor: "rep_pro_brushless_2006_2500kv_high_reduction_131", esc_A: 20, brake: true, drive_V: 0 },
+      battery: { cells: 4, mAh: 650, R_mohm: 40 },
+      weapon: { type: "vertical", x: 0, y: 0, z: 133.35, d: 228.6, mass_g: 300, shape: "bar", thick: 6.35, teeth: 2, dir: 1,
+                motor: "rep_repeat_2822_mk3_1800kv", motors: 1, ratio: 2.5, esc_A: 40 },
     },
     eggbeater: {
       name: "Eggbeater", archetype: "Eggbeater (vertical beater between two uprights), 4WD + front forks",
